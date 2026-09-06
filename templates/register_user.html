@@ -411,6 +411,16 @@
   }
 
   function openGoogleModal() {
+    var regEmail = (document.getElementById('reg-email') ? document.getElementById('reg-email').value : '') || '';
+    var googleEmailInput = document.getElementById('google-email-input');
+    if (googleEmailInput && !googleEmailInput.value && regEmail) {
+      googleEmailInput.value = regEmail;
+    }
+    var regName = (document.getElementById('reg-name') ? document.getElementById('reg-name').value : '') || '';
+    var googleNameInput = document.getElementById('google-name-input');
+    if (googleNameInput && !googleNameInput.value && regName) {
+      googleNameInput.value = regName;
+    }
     var modal = document.getElementById('google-modal');
     if (modal) modal.style.display = 'flex';
   }
