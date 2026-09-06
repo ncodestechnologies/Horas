@@ -45,12 +45,23 @@ from services.firebase_service import (
     pull_from_firebase
 )
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BASE_DIR, 'templates'),
+    static_folder=os.path.join(BASE_DIR, 'static')
+)
 app.secret_key = os.environ.get('SECRET_KEY', 'controle-horas-secret-key-prod-2026')
 app.config['SESSION_COOKIE_SAMESITE'] = 'None'
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_NAME'] = 'horas_session'
+
+# Inicializa o banco de dados na inicialização do app (essencial para ambientes serverless como Vercel)
+try:
+    init_db()
+except Exception as _db_init_err:
+    print(f"Aviso na inicialização do banco: {_db_init_err}")
 
 MONTH_NAMES_PT = {
     1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril',

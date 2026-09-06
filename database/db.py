@@ -1,18 +1,64 @@
 import os
 import sqlite3
+import shutil
 from werkzeug.security import generate_password_hash
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'database.db')
+# Detecta se está em ambiente serverless (Vercel / AWS Lambda) ou se o diretório do app é somente-leitura
+IS_SERVERLESS = bool(os.environ.get('VERCEL') or os.environ.get('AWS_LAMBDA_FUNCTION_NAME') or os.environ.get('LAMBDA_TASK_ROOT'))
+
+DEFAULT_DB_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_DB_PATH = os.path.join(DEFAULT_DB_DIR, 'database.db')
+
+# No Vercel Serverless, o filesystem do código (/var/task) é somente-leitura.
+# O único local com permissão de escrita para SQLite é a pasta /tmp.
+def get_db_path():
+    if IS_SERVERLESS or not os.access(DEFAULT_DB_DIR, os.W_OK):
+        tmp_path = '/tmp/database.db'
+        if not os.path.exists(tmp_path) and os.path.exists(DEFAULT_DB_PATH):
+            try:
+                shutil.copyfile(DEFAULT_DB_PATH, tmp_path)
+            except Exception:
+                pass
+        return tmp_path
+    return DEFAULT_DB_PATH
+
+DB_PATH = get_db_path()
+_initialized = False
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    global _initialized, DB_PATH
+    DB_PATH = get_db_path()
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, timeout=15)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
+
+    # Auto-inicializa o banco caso as tabelas não existam (essencial para cold starts na Vercel)
+    if not _initialized:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+            if not cursor.fetchone():
+                _initialized = True
+                conn.close()
+                init_db()
+                conn = sqlite3.connect(DB_PATH, timeout=15)
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA foreign_keys = ON;")
+            else:
+                _initialized = True
+        except Exception:
+            _initialized = True
+
     return conn
 
 def init_db():
+    global DB_PATH
+    DB_PATH = get_db_path()
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = get_db()
+    conn = sqlite3.connect(DB_PATH, timeout=15)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON;")
     cursor = conn.cursor()
 
     cursor.execute("""
