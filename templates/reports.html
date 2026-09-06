@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% block title %}Relatórios de Jornada{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Relatórios e Exportações</h1>
+    <p class="page-subtitle">Gere relatórios consolidados e exporte dados em CSV, Excel ou PDF diretamente do servidor Python.</p>
+  </div>
+
+  <!-- Botões de Exportação no Servidor Python (Links GET com download de arquivo) -->
+  <div class="export-bar">
+    <a href="{{ url_for('export_csv', start=summary.start_date, end=summary.end_date) }}" class="btn btn-secondary btn-sm" id="btn-export-csv" title="Exportar para arquivo CSV compatível com Excel">
+      📄 Exportar CSV
+    </a>
+    <a href="{{ url_for('export_excel', start=summary.start_date, end=summary.end_date) }}" class="btn btn-success btn-sm" id="btn-export-excel" title="Exportar planilha formatada em Excel (.xlsx)">
+      📊 Exportar Excel
+    </a>
+    <a href="{{ url_for('export_pdf', start=summary.start_date, end=summary.end_date) }}" class="btn btn-primary btn-sm" id="btn-export-pdf" title="Exportar documento diagramado em PDF">
+      📑 Exportar PDF
+    </a>
+  </div>
+</div>
+
+<!-- Filtro de Período (Mês, Semana, Personalizado - Sem JavaScript) -->
+<div class="filter-bar">
+  <form method="GET" action="{{ url_for('reports_view') }}" class="filter-form">
+    <div class="filter-group" style="max-width: 190px;">
+      <label for="preset">Atalhos de Período</label>
+      <select id="preset" name="preset" class="form-control">
+        <option value="this_month" {% if preset == 'this_month' %}selected{% endif %}>Este Mês</option>
+        <option value="last_month" {% if preset == 'last_month' %}selected{% endif %}>Mês Passado</option>
+        <option value="this_week" {% if preset == 'this_week' %}selected{% endif %}>Esta Semana</option>
+        <option value="custom" {% if preset == 'custom' %}selected{% endif %}>Período Personalizado</option>
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label for="start_date">Data Início</label>
+      <input type="date" id="start_date" name="start_date" class="form-control" value="{{ summary.start_date }}">
+    </div>
+
+    <div class="filter-group">
+      <label for="end_date">Data Fim</label>
+      <input type="date" id="end_date" name="end_date" class="form-control" value="{{ summary.end_date }}">
+    </div>
+
+    <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
+      <button type="submit" class="btn btn-primary" id="btn-apply-report-filter">
+        🔄 Atualizar Relatório
+      </button>
+    </div>
+  </form>
+</div>
+
+<!-- Alerta de Horas a Pagar no Período e Saldo Acumulado (Persiste entre meses) -->
+{% if cumulative_bank_mins < 0 or summary.total_balance_minutes < 0 %}
+  <div class="debt-warning-banner" style="margin-bottom: 2rem;">
+    <div class="debt-warning-icon">⚠️</div>
+    <div class="debt-warning-text">
+      <strong>Débito de Horas Detectado — Horas a Pagar</strong>
+      <span>
+        {% if summary.total_balance_minutes < 0 %}
+          Saldo devedor no período do relatório: <strong>{{ summary.total_balance_str }}</strong> ({{ summary.total_missing_str }} horas faltantes).
+        {% endif %}
+        {% if cumulative_bank_mins < 0 %}
+          Saldo acumulado total no Banco de Horas: <strong>{{ cumulative_bank_str }}</strong> a pagar (mesmo com a virada do mês, o débito continua ativo e deve ser pago através de compensação futura).
+        {% endif %}
+      </span>
+    </div>
+    <a href="{{ url_for('register_time') }}" class="btn btn-danger btn-sm" style="white-space: nowrap;">
+      + Compensar Horas
+    </a>
+  </div>
+{% endif %}
+
+<!-- Cards com Métricas Agregadas pelo Python -->
+<div class="stats-grid" style="margin-bottom: 2rem;">
+  <div class="stat-card">
+    <div class="stat-label">Total Trabalhado</div>
+    <div class="stat-value">{{ summary.total_worked_str }}</div>
+    <div class="stat-subtext">Horas efetivamente cumpridas</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-label">Total Previsto</div>
+    <div class="stat-value">{{ summary.total_expected_str }}</div>
+    <div class="stat-subtext">Carga horária esperada no período</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-label">Horas Extras</div>
+    <div class="stat-value text-positive">{{ summary.total_overtime_str }}</div>
+    <div class="stat-subtext">Excedente acumulado</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-label">Horas Faltantes</div>
+    <div class="stat-value text-negative">{{ summary.total_missing_str }}</div>
+    <div class="stat-subtext">Débito de horas acumulado</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-label">Saldo do Período</div>
+    <div class="stat-value {% if '+' in summary.total_balance_str %}text-positive{% elif '-' in summary.total_balance_str %}text-negative{% else %}text-neutral{% endif %}">
+      {{ summary.total_balance_str }}
+    </div>
+    <div class="stat-subtext">Diferença líquida do período</div>
+  </div>
+
+  <div class="stat-card" {% if cumulative_bank_mins < 0 %}style="border-color: #fca5a5; background: #fff5f5;"{% endif %}>
+    <div class="stat-label">Saldo Acumulado (Banco)</div>
+    <div class="stat-value {% if '+' in cumulative_bank_str %}text-positive{% elif '-' in cumulative_bank_str %}text-negative{% else %}text-neutral{% endif %}">
+      {{ cumulative_bank_str }}
+    </div>
+    <div class="stat-subtext">
+      {% if cumulative_bank_mins < 0 %}
+        <span style="color: #dc2626; font-weight: 700;">⚠️ Débito ativo a pagar (acumulado entre meses)</span>
+      {% else %}
+        Total geral acumulado
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-label">Dias Trabalhados</div>
+    <div class="stat-value">{{ summary.worked_days_count }}</div>
+    <div class="stat-subtext">{{ summary.off_days_count }} dia(s) de folga/afastamento</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-label">Média Diária</div>
+    <div class="stat-value">{{ summary.average_daily_str }}</div>
+    <div class="stat-subtext">Média por dia trabalhado</div>
+  </div>
+</div>
+
+<!-- Tabela Detalhada -->
+<div class="table-card">
+  <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); background: var(--bg-surface); display: flex; align-items: center; justify-content: space-between;">
+    <h3 style="font-size: 1.1rem; font-weight: 700;">Detalhamento Diário do Período</h3>
+    <span style="font-size: 0.85rem; color: var(--text-muted);">{{ summary.days|length }} registros encontrados</span>
+  </div>
+
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Tipo</th>
+          <th>Entrada</th>
+          <th>Saída Int.</th>
+          <th>Retorno</th>
+          <th>Saída Final</th>
+          <th>Trabalhado</th>
+          <th>Previsto</th>
+          <th>Extras</th>
+          <th>Faltantes</th>
+          <th>Saldo</th>
+          <th>Observações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if summary.days %}
+          {% for d in summary.days %}
+            <tr>
+              <td>
+                <a href="{{ url_for('day_detail_view', date_str=d.date) }}" style="font-weight: 700; color: var(--primary); text-decoration: none;">
+                  {{ d.date.split('-')[2] }}/{{ d.date.split('-')[1] }}/{{ d.date.split('-')[0] }}
+                </a>
+              </td>
+              <td>
+                {% if d.day_type == 'trabalho' %}Normal
+                {% elif d.day_type == 'folga' %}Folga
+                {% elif d.day_type == 'feriado' %}Feriado
+                {% elif d.day_type == 'falta' %}<span style="color: #dc2626; font-weight: 700;">Falta (A Pagar)</span>
+                {% elif d.day_type == 'atestado' %}Atestado
+                {% else %}{{ d.day_type }}{% endif %}
+              </td>
+              <td>{{ d.first_in }}</td>
+              <td>
+                {% if d.periods|length > 1 %}{{ d.periods[0].end_time }}{% else %}—{% endif %}
+              </td>
+              <td>
+                {% if d.periods|length > 1 %}{{ d.periods[1].start_time }}{% else %}—{% endif %}
+              </td>
+              <td>{{ d.last_out }}</td>
+              <td><strong>{{ d.total_worked_str }}</strong></td>
+              <td>{{ d.expected_str }}</td>
+              <td class="text-positive">{{ d.overtime_str if d.overtime_minutes > 0 else '-' }}</td>
+              <td class="text-negative">{{ d.missing_str if d.missing_minutes > 0 else '-' }}</td>
+              <td>
+                <span class="{% if '+' in d.balance_str %}text-positive{% elif '-' in d.balance_str %}text-negative{% endif %}" style="font-weight: 700;">
+                  {{ d.balance_str }}
+                </span>
+              </td>
+              <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                {{ d.observation or '—' }}
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="12" style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
+              Nenhum dado registrado para o período de {{ summary.start_date }} a {{ summary.end_date }}.
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

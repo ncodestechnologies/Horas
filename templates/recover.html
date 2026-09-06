@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Recuperar Senha{% endblock %}
+
+{% block content %}
+<div class="login-wrapper">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="login-brand-icon">🔑</div>
+      <h1>Recuperar Senha</h1>
+      <p>Acesso exclusivo do proprietário</p>
+    </div>
+
+    <form method="POST" action="{{ url_for('recover_password') }}">
+      <div class="form-group">
+        <label for="recover-email" class="form-label">Seu E-mail Cadastrado</label>
+        <input 
+          type="email" 
+          id="recover-email" 
+          name="email" 
+          class="form-control" 
+          required 
+          placeholder="seu-email@exemplo.com"
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="new-password" class="form-label">Nova Senha</label>
+        <input 
+          type="password" 
+          id="new-password" 
+          name="new_password" 
+          class="form-control" 
+          required 
+          placeholder="Defina sua nova senha"
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="confirm-password" class="form-label">Confirmar Nova Senha</label>
+        <input 
+          type="password" 
+          id="confirm-password" 
+          name="confirm_password" 
+          class="form-control" 
+          required 
+          placeholder="Repita a nova senha"
+        >
+      </div>
+
+      <div style="margin-top: 1.5rem; display: flex; flex-direction: column; gap: 0.75rem;">
+        <button type="submit" class="btn btn-primary" id="btn-submit-recovery" style="width: 100%;">
+          Atualizar Minha Senha
+        </button>
+        <a href="{{ url_for('login') }}" class="btn btn-secondary" style="width: 100%;">
+          Voltar para o Login
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

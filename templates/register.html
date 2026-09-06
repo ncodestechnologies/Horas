@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+
+{% block title %}{% if is_edit %}Editar Registro{% else %}Registrar Horário{% endif %}{% endblock %}
+
+{% block content %}
+<div class="page-header" style="max-width: 800px; margin: 0 auto 1.5rem;">
+  <div>
+    <h1 class="page-title">{% if is_edit %}Editar Registro de Horário{% else %}Registrar Jornada de Horas{% endif %}</h1>
+    <p class="page-subtitle">Preencha os períodos trabalhados. O cálculo das horas e saldo é feito 100% pelo servidor Python.</p>
+  </div>
+  {% if is_edit %}
+    <a href="{{ url_for('confirm_delete', day_id=day.id) }}" class="btn btn-danger btn-sm" id="btn-delete-record">
+      🗑 Excluir Registro
+    </a>
+  {% endif %}
+</div>
+
+<div class="form-card">
+  <form method="POST" action="{% if is_edit %}{{ url_for('edit_time', day_id=day.id) }}{% else %}{{ url_for('register_time') }}{% endif %}">
+    
+    <div class="form-row">
+      <div class="form-group">
+        <label for="date" class="form-label">Data da Jornada <span style="color: var(--danger);">*</span></label>
+        <input 
+          type="date" 
+          id="date" 
+          name="date" 
+          class="form-control" 
+          required 
+          value="{{ form_data.date }}"
+          {% if is_edit %}readonly style="background-color: var(--bg-subtle);"{% endif %}
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="day_type" class="form-label">Tipo de Dia</label>
+        <select id="day_type" name="day_type" class="form-control">
+          <option value="trabalho" {% if form_data.day_type == 'trabalho' %}selected{% endif %}>Dia Normal de Trabalho</option>
+          <option value="folga" {% if form_data.day_type == 'folga' %}selected{% endif %}>Folga Semanal / Descanso</option>
+          <option value="feriado" {% if form_data.day_type == 'feriado' %}selected{% endif %}>Feriado</option>
+          <option value="falta" {% if form_data.day_type == 'falta' %}selected{% endif %}>Falta / Dia a Pagar (Sem Trabalho)</option>
+          <option value="atestado" {% if form_data.day_type == 'atestado' %}selected{% endif %}>Atestado Médico / Licença</option>
+          <option value="compensacao" {% if form_data.day_type == 'compensacao' %}selected{% endif %}>Compensação de Horas</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Aviso Informativo para Folga / Feriado / Outros -->
+    <div id="non-work-notice" style="display: none; margin: 1.5rem 0; padding: 1.25rem 1.5rem; border-radius: var(--radius-md); background: #f0fdf4; border: 1px solid #bbf7d0;">
+      <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+        <span id="non-work-icon" style="font-size: 1.5rem; line-height: 1;">🌴</span>
+        <div>
+          <h4 id="non-work-title" style="font-size: 1rem; font-weight: 700; color: #166534; margin-bottom: 0.25rem;">
+            Dia de Folga Selecionado
+          </h4>
+          <p id="non-work-desc" style="font-size: 0.88rem; color: #15803d; margin: 0;">
+            Nenhum período de trabalho é necessário para este dia. O formulário não contabilizará horas trabalhadas e seu saldo não será alterado.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Seção de Períodos de Trabalho (Visível apenas quando for dia de trabalho) -->
+    <div id="periods-section">
+      <div style="margin: 1.5rem 0 1rem; border-top: 1px solid var(--border-color); padding-top: 1.25rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;">
+        <div>
+          <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 0.25rem;">Períodos de Trabalho</h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0;">
+            Os campos iniciam zerados. Preencha apenas os turnos trabalhados ou use o atalho abaixo.
+          </p>
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" id="btn-fill-defaults" class="btn btn-secondary btn-sm" style="font-size: 0.82rem;">
+            ⚡ Preencher Padrão ({{ default_settings.default_start or '08:00' }} - {{ default_settings.default_end or '17:00' }})
+          </button>
+          <button type="button" id="btn-clear-periods" class="btn btn-secondary btn-sm" style="font-size: 0.82rem;">
+            🧹 Limpar Campos
+          </button>
+        </div>
+      </div>
+
+      <!-- Período 1 -->
+      <div class="period-box">
+        <div class="period-header">
+          <span>Período 1 (Manhã / Primeiro Turno)</span>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Principal</span>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="p1_start" class="form-label">Horário de Entrada</label>
+            <input type="time" id="p1_start" name="p1_start" class="form-control period-input" value="{{ form_data.p1_start }}">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="p1_end" class="form-label">Horário de Saída (para intervalo)</label>
+            <input type="time" id="p1_end" name="p1_end" class="form-control period-input" value="{{ form_data.p1_end }}">
+          </div>
+        </div>
+      </div>
+
+      <!-- Período 2 -->
+      <div class="period-box">
+        <div class="period-header">
+          <span>Período 2 (Tarde / Retorno do Intervalo)</span>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Segundo Turno</span>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="p2_start" class="form-label">Horário de Retorno</label>
+            <input type="time" id="p2_start" name="p2_start" class="form-control period-input" value="{{ form_data.p2_start }}">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="p2_end" class="form-label">Horário de Saída Final</label>
+            <input type="time" id="p2_end" name="p2_end" class="form-control period-input" value="{{ form_data.p2_end }}">
+          </div>
+        </div>
+      </div>
+
+      <!-- Período 3 (Opcional - Múltiplos períodos / Plantão) -->
+      <div class="period-box">
+        <div class="period-header">
+          <span>Período 3 (Opcional — Noite / Plantão / Período Extra)</span>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="p3_start" class="form-label">Horário de Entrada</label>
+            <input type="time" id="p3_start" name="p3_start" class="form-control period-input" value="{{ form_data.p3_start }}">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="p3_end" class="form-label">Horário de Saída</label>
+            <input type="time" id="p3_end" name="p3_end" class="form-control period-input" value="{{ form_data.p3_end }}">
+          </div>
+        </div>
+      </div>
+
+      <!-- Período 4 (Opcional) -->
+      <div class="period-box">
+        <div class="period-header">
+          <span>Período 4 (Opcional — Turno Diferenciado)</span>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="p4_start" class="form-label">Horário de Entrada</label>
+            <input type="time" id="p4_start" name="p4_start" class="form-control period-input" value="{{ form_data.p4_start }}">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="p4_end" class="form-label">Horário de Saída</label>
+            <input type="time" id="p4_end" name="p4_end" class="form-control period-input" value="{{ form_data.p4_end }}">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Observações -->
+    <div class="form-group" style="margin-top: 1.5rem;">
+      <label for="observation" class="form-label">
+        Observações do Dia <small>(Ex: "Folga programada", "Feriado municipal", "Plantão", etc.)</small>
+      </label>
+      <textarea id="observation" name="observation" class="form-control" rows="3" placeholder="Insira qualquer anotação relevante sobre este dia...">{{ form_data.observation }}</textarea>
+    </div>
+
+    <div class="form-actions">
+      <a href="{{ url_for('dashboard') }}" class="btn btn-secondary" id="btn-cancel-register">Cancelar</a>
+      <button type="submit" class="btn btn-primary" id="btn-save-register">
+        💾 {% if is_edit %}Atualizar Registro{% else %}Salvar Registro{% endif %}
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const dayTypeSelect = document.getElementById('day_type');
+  const periodsSection = document.getElementById('periods-section');
+  const nonWorkNotice = document.getElementById('non-work-notice');
+  const nonWorkIcon = document.getElementById('non-work-icon');
+  const nonWorkTitle = document.getElementById('non-work-title');
+  const nonWorkDesc = document.getElementById('non-work-desc');
+  const periodInputs = document.querySelectorAll('.period-input');
+
+  const defaultStart = "{{ default_settings.default_start or '08:00' }}";
+  const defaultBreakStart = "{{ default_settings.default_break_start or '12:00' }}";
+  const defaultBreakEnd = "{{ default_settings.default_break_end or '13:00' }}";
+  const defaultEnd = "{{ default_settings.default_end or '17:00' }}";
+
+  function updateDayTypeView() {
+    const selected = dayTypeSelect.value;
+    if (selected === 'trabalho') {
+      periodsSection.style.display = 'block';
+      nonWorkNotice.style.display = 'none';
+    } else {
+      periodsSection.style.display = 'none';
+      nonWorkNotice.style.display = 'block';
+
+      // Limpa os campos de horário para que não fiquem valores residuais e não conte horas
+      periodInputs.forEach(input => input.value = '');
+
+      if (selected === 'folga') {
+        nonWorkNotice.style.background = '#ecfdf5';
+        nonWorkNotice.style.borderColor = '#a7f3d0';
+        nonWorkIcon.textContent = '🌴';
+        nonWorkTitle.style.color = '#065f46';
+        nonWorkTitle.textContent = 'Folga Semanal / Descanso';
+        nonWorkDesc.style.color = '#047857';
+        nonWorkDesc.textContent = 'Nenhum horário de trabalho é necessário. Nenhuma hora será exigida ou contabilizada no seu saldo.';
+      } else if (selected === 'feriado') {
+        nonWorkNotice.style.background = '#fffbeb';
+        nonWorkNotice.style.borderColor = '#fde68a';
+        nonWorkIcon.textContent = '🎉';
+        nonWorkTitle.style.color = '#92400e';
+        nonWorkTitle.textContent = 'Feriado';
+        nonWorkDesc.style.color = '#b45309';
+        nonWorkDesc.textContent = 'Dia de feriado isento de trabalho. Nenhuma hora será exigida ou contabilizada no banco de horas.';
+      } else if (selected === 'falta') {
+        nonWorkNotice.style.background = '#fff1f2';
+        nonWorkNotice.style.borderColor = '#fecdd3';
+        nonWorkIcon.textContent = '⚠️';
+        nonWorkTitle.style.color = '#9f1239';
+        nonWorkTitle.textContent = 'Falta / Ausência a Pagar (Sem Trabalho)';
+        nonWorkDesc.style.color = '#be123c';
+        nonWorkDesc.textContent = 'Os horários permanecem zerados. A carga horária prevista deste dia será contabilizada como débito/horas a pagar no seu banco de horas, persistindo acumulada mesmo que vire o mês!';
+      } else if (selected === 'atestado') {
+        nonWorkNotice.style.background = '#f5f3ff';
+        nonWorkNotice.style.borderColor = '#ddd6fe';
+        nonWorkIcon.textContent = '🩺';
+        nonWorkTitle.style.color = '#5b21b6';
+        nonWorkTitle.textContent = 'Atestado Médico / Licença';
+        nonWorkDesc.style.color = '#6d28d9';
+        nonWorkDesc.textContent = 'Ausência justificada. Nenhuma hora de débito será gerada.';
+      } else if (selected === 'compensacao') {
+        nonWorkNotice.style.background = '#ecfeff';
+        nonWorkNotice.style.borderColor = '#a5f3fc';
+        nonWorkIcon.textContent = '⚖️';
+        nonWorkTitle.style.color = '#155e75';
+        nonWorkTitle.textContent = 'Compensação de Horas';
+        nonWorkDesc.style.color = '#0e7490';
+        nonWorkDesc.textContent = 'Dia compensado previamente pelo banco de horas.';
+      }
+    }
+  }
+
+  // Atalho para preencher horários padrão
+  const btnFillDefaults = document.getElementById('btn-fill-defaults');
+  if (btnFillDefaults) {
+    btnFillDefaults.addEventListener('click', function() {
+      document.getElementById('p1_start').value = defaultStart;
+      document.getElementById('p1_end').value = defaultBreakStart;
+      document.getElementById('p2_start').value = defaultBreakEnd;
+      document.getElementById('p2_end').value = defaultEnd;
+      document.getElementById('p3_start').value = '';
+      document.getElementById('p3_end').value = '';
+      document.getElementById('p4_start').value = '';
+      document.getElementById('p4_end').value = '';
+    });
+  }
+
+  // Atalho para limpar horários (zerar)
+  const btnClearPeriods = document.getElementById('btn-clear-periods');
+  if (btnClearPeriods) {
+    btnClearPeriods.addEventListener('click', function() {
+      periodInputs.forEach(input => input.value = '');
+    });
+  }
+
+  dayTypeSelect.addEventListener('change', updateDayTypeView);
+  updateDayTypeView();
+});
+</script>
+{% endblock %}

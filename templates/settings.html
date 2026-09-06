@@ -1,0 +1,456 @@
+{% extends "base.html" %}
+
+{% block title %}Configurações{% endblock %}
+
+{% block content %}
+<div class="page-header" style="max-width: 800px; margin: 0 auto 1.5rem;">
+  <div>
+    <h1 class="page-title">Configurações Pessoais</h1>
+    <p class="page-subtitle">Defina seus parâmetros de jornada diária, tolerância e banco de horas.</p>
+  </div>
+</div>
+
+<div class="form-card" style="margin-bottom: 2rem;">
+  <form method="POST" action="{{ url_for('settings_view') }}">
+    <input type="hidden" name="action" value="save_work_settings">
+
+    <!-- Seção 1: Jornada de Trabalho -->
+    <div style="margin-bottom: 1.5rem;">
+      <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--primary-dark); margin-bottom: 0.35rem;">
+        ⏱ Parâmetros da Jornada de Trabalho
+      </h3>
+      <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+        Configurações usadas como meta diária e preenchimento sugerido.
+      </p>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="daily_hours" class="form-label">Carga Horária Prevista por Dia (HH:MM)</label>
+          <input 
+            type="text" 
+            id="daily_hours" 
+            name="daily_hours" 
+            class="form-control" 
+            required 
+            pattern="[0-9]{1,2}:[0-9]{2}" 
+            placeholder="08:00"
+            value="{{ settings.daily_hours_str }}"
+          >
+        </div>
+
+        <div class="form-group">
+          <label for="tolerance_minutes" class="form-label">Tolerância (minutos)</label>
+          <input 
+            type="number" 
+            id="tolerance_minutes" 
+            name="tolerance_minutes" 
+            class="form-control" 
+            min="0" 
+            max="60" 
+            value="{{ settings.tolerance_minutes }}"
+          >
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="default_start" class="form-label">Horário Padrão de Entrada</label>
+          <input type="time" id="default_start" name="default_start" class="form-control" value="{{ settings.default_start }}">
+        </div>
+
+        <div class="form-group">
+          <label for="default_break_start" class="form-label">Padrão Saída Intervalo</label>
+          <input type="time" id="default_break_start" name="default_break_start" class="form-control" value="{{ settings.default_break_start }}">
+        </div>
+
+        <div class="form-group">
+          <label for="default_break_end" class="form-label">Padrão Retorno Intervalo</label>
+          <input type="time" id="default_break_end" name="default_break_end" class="form-control" value="{{ settings.default_break_end }}">
+        </div>
+
+        <div class="form-group">
+          <label for="default_end" class="form-label">Horário Padrão de Saída Final</label>
+          <input type="time" id="default_end" name="default_end" class="form-control" value="{{ settings.default_end }}">
+        </div>
+      </div>
+    </div>
+
+    <!-- Seção 2: Banco de Horas -->
+    <div style="margin-bottom: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+      <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--primary-dark); margin-bottom: 0.35rem;">
+        🏦 Banco de Horas
+      </h3>
+      <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+        Ative a acumulação automática do saldo e configure um saldo inicial anterior caso possua.
+      </p>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="bank_active" class="form-label">Status do Banco de Horas</label>
+          <select id="bank_active" name="bank_active" class="form-control">
+            <option value="1" {% if settings.bank_active == 1 %}selected{% endif %}>Ativado (Acumular horas extras e faltantes)</option>
+            <option value="0" {% if settings.bank_active == 0 %}selected{% endif %}>Desativado</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="initial_balance" class="form-label">Saldo Inicial Acumulado (+HH:MM ou -HH:MM)</label>
+          <input 
+            type="text" 
+            id="initial_balance" 
+            name="initial_balance" 
+            class="form-control" 
+            placeholder="+00:00 ou -05:30"
+            value="{{ settings.initial_balance_str }}"
+          >
+          <small style="color: var(--text-muted); font-size: 0.8rem; display: block; margin-top: 0.3rem;">
+            Utilize sinal de '+' para crédito ou '-' para débito.
+          </small>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-actions" style="margin-top: 1rem;">
+      <button type="submit" class="btn btn-primary" id="btn-save-settings">
+        💾 Salvar Configurações de Jornada
+      </button>
+    </div>
+  </form>
+</div>
+
+<!-- Seção 3: Credenciais e Perfil Pessoal -->
+<div class="form-card">
+  <form method="POST" action="{{ url_for('settings_view') }}" onsubmit="return validateSettingsCPF(event)">
+    <input type="hidden" name="action" value="update_account">
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; flex-wrap: wrap; gap: 8px;">
+      <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--primary-dark); margin: 0;">
+        🔐 Perfil Pessoal, CPF e Segurança
+      </h3>
+      {% if user_data.role == 'admin' or user_email == 'ncodestechnologies@gmail.com' %}
+        <span style="background: #fef08a; color: #854d0e; font-size: 0.75rem; font-weight: 700; padding: 4px 10px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 4px;">
+          ⭐ Administrador Master
+        </span>
+      {% else %}
+        <span style="background: #e0f2fe; color: #0369a1; font-size: 0.75rem; font-weight: 600; padding: 4px 10px; border-radius: 9999px;">
+          Usuário Padrão
+        </span>
+      {% endif %}
+    </div>
+    <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+      Gerencie seus dados de identificação pessoal, CPF validado e credenciais de acesso.
+    </p>
+
+    <div class="form-row">
+      <div class="form-group" style="flex: 1;">
+        <label for="account_name" class="form-label">Nome Completo</label>
+        <input 
+          type="text" 
+          id="account_name" 
+          name="name" 
+          class="form-control" 
+          value="{{ user_data.name or '' }}"
+          placeholder="Ex: João da Silva"
+        >
+      </div>
+
+      <div class="form-group" style="flex: 1;">
+        <label for="account_cpf" class="form-label" style="display: flex; justify-content: space-between;">
+          <span>CPF</span>
+          <span id="settings-cpf-status" style="font-size: 0.78rem; font-weight: 600;"></span>
+        </label>
+        <input 
+          type="text" 
+          id="account_cpf" 
+          name="cpf" 
+          class="form-control" 
+          maxlength="14"
+          value="{{ user_data.cpf or '' }}"
+          placeholder="000.000.000-00"
+          style="font-family: monospace;"
+          oninput="maskAndValidateSettingsCPF(this)"
+        >
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="account_email" class="form-label">E-mail de Acesso</label>
+      <input 
+        type="email" 
+        id="account_email" 
+        name="email" 
+        class="form-control" 
+        required 
+        value="{{ user_email }}"
+      >
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label for="new_pwd" class="form-label">Nova Senha <small>(deixe em branco se não desejar alterar)</small></label>
+        <input 
+          type="password" 
+          id="new_pwd" 
+          name="new_password" 
+          class="form-control" 
+          placeholder="Digite a nova senha"
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="confirm_pwd" class="form-label">Confirmar Nova Senha</label>
+        <input 
+          type="password" 
+          id="confirm_pwd" 
+          name="confirm_password" 
+          class="form-control" 
+          placeholder="Confirme a nova senha"
+        >
+      </div>
+    </div>
+
+    <div class="form-actions" style="margin-top: 1rem;">
+      <button type="submit" class="btn btn-secondary" id="btn-update-account">
+        🔒 Salvar Alterações da Conta
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+  function isCPFValidSettings(cpfStr) {
+    if (!cpfStr) return false;
+    var clean = cpfStr.replace(/\D/g, '');
+    if (clean.length !== 11) return false;
+    if (/^(\d)\1{10}$/.test(clean)) return false;
+
+    var sum1 = 0;
+    for (var i = 0; i < 9; i++) sum1 += parseInt(clean.charAt(i), 10) * (10 - i);
+    var r1 = 11 - (sum1 % 11);
+    var d1 = (r1 >= 10) ? 0 : r1;
+    if (d1 !== parseInt(clean.charAt(9), 10)) return false;
+
+    var sum2 = 0;
+    for (var j = 0; j < 10; j++) sum2 += parseInt(clean.charAt(j), 10) * (11 - j);
+    var r2 = 11 - (sum2 % 11);
+    var d2 = (r2 >= 10) ? 0 : r2;
+    if (d2 !== parseInt(clean.charAt(10), 10)) return false;
+
+    return true;
+  }
+
+  function maskAndValidateSettingsCPF(input) {
+    var v = input.value.replace(/\D/g, '').slice(0, 11);
+    if (v.length > 9) input.value = v.replace(/(\d{3})(\d{3})(\d{3})(\d{1,2})/, '$1.$2.$3-$4');
+    else if (v.length > 6) input.value = v.replace(/(\d{3})(\d{3})(\d+)/, '$1.$2.$3');
+    else if (v.length > 3) input.value = v.replace(/(\d{3})(\d+)/, '$1.$2');
+    else input.value = v;
+
+    var statusElem = document.getElementById('settings-cpf-status');
+    if (!statusElem) return;
+
+    if (v.length === 0) {
+      statusElem.innerText = '';
+      input.style.borderColor = '#e2e8f0';
+    } else if (v.length < 11) {
+      statusElem.innerText = 'Digitando (' + v.length + '/11)...';
+      statusElem.style.color = '#2563eb';
+      input.style.borderColor = '#93c5fd';
+    } else if (isCPFValidSettings(v)) {
+      statusElem.innerText = '✅ CPF Válido';
+      statusElem.style.color = '#059669';
+      input.style.borderColor = '#10b981';
+    } else {
+      statusElem.innerText = '❌ CPF Inválido';
+      statusElem.style.color = '#e11d48';
+      input.style.borderColor = '#ef4444';
+    }
+  }
+
+  function validateSettingsCPF(e) {
+    var input = document.getElementById('account_cpf');
+    if (!input || !input.value) return true;
+    var clean = input.value.replace(/\D/g, '');
+    if (clean.length > 0 && !isCPFValidSettings(clean)) {
+      alert('O CPF digitado é inválido pelo cálculo oficial da Receita Federal.');
+      input.focus();
+      return false;
+    }
+    return true;
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    var input = document.getElementById('account_cpf');
+    if (input && input.value) {
+      maskAndValidateSettingsCPF(input);
+    }
+  });
+</script>
+
+<!-- Seção 3.5: Nuvem Firebase Firestore -->
+<div class="form-card" id="card-firebase-status" style="margin-top: 2rem; border-color: #bae6fd; background-color: #f0f9ff;">
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+    <div>
+      <h3 style="font-size: 1.15rem; font-weight: 700; color: #0369a1; margin-bottom: 0.35rem;">
+        ☁️ Banco de Dados em Nuvem (Firebase Firestore)
+      </h3>
+      <p style="font-size: 0.88rem; color: #075985; margin-bottom: 0.75rem;">
+        Seus registros e parâmetros de jornada são salvos de forma persistente no Google Cloud Firestore.
+      </p>
+    </div>
+    {% if firebase_status and firebase_status.connected %}
+      <span id="badge-firebase-online" style="background: #dcfce7; color: #166534; border: 1px solid #86efac; padding: 4px 12px; border-radius: 9999px; font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+        <span style="width: 8px; height: 8px; background-color: #22c55e; border-radius: 50%; display: inline-block;"></span>
+        Nuvem Conectada
+      </span>
+    {% else %}
+      <span id="badge-firebase-offline" style="background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; padding: 4px 12px; border-radius: 9999px; font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+        <span style="width: 8px; height: 8px; background-color: #f59e0b; border-radius: 50%; display: inline-block;"></span>
+        Modo Local / Standby
+      </span>
+    {% endif %}
+  </div>
+
+  <div style="background: #ffffff; border: 1px solid #e0f2fe; border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; font-size: 0.85rem;">
+      <div>
+        <span style="color: #64748b; display: block; font-size: 0.78rem; text-transform: uppercase; font-weight: 600;">Projeto Firebase:</span>
+        <strong style="color: #0f172a; font-family: monospace;">{{ (firebase_status and firebase_status.project_id) or 'dub-courier-hhh41' }}</strong>
+      </div>
+      <div>
+        <span style="color: #64748b; display: block; font-size: 0.78rem; text-transform: uppercase; font-weight: 600;">Banco Firestore:</span>
+        <strong style="color: #0f172a; font-family: monospace; word-break: break-all;">{{ (firebase_status and firebase_status.database_id) or 'ai-studio-meucontroledehor-...' }}</strong>
+      </div>
+      <div>
+        <span style="color: #64748b; display: block; font-size: 0.78rem; text-transform: uppercase; font-weight: 600;">Status do Serviço:</span>
+        <strong style="color: #0284c7;">{{ (firebase_status and firebase_status.status) or 'Ativo' }}</strong>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+    <form method="POST" action="{{ url_for('settings_view') }}" id="form-sync-firebase" style="margin: 0;">
+      <input type="hidden" name="action" value="sync_firebase">
+      <button type="submit" class="btn btn-primary" id="btn-sync-firebase" style="background-color: #0284c7; border-color: #0284c7;">
+        🔄 Enviar Dados para Nuvem (Backup)
+      </button>
+    </form>
+    <form method="POST" action="{{ url_for('settings_view') }}" id="form-pull-firebase" style="margin: 0;">
+      <input type="hidden" name="action" value="pull_firebase">
+      <button type="submit" class="btn btn-secondary" id="btn-pull-firebase" style="background-color: #ffffff; color: #0369a1; border: 1px solid #7dd3fc;">
+        📥 Restaurar Dados da Nuvem
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- Seção 4: Zona de Limpeza de Dados -->
+<div class="form-card" id="card-reset-data" style="margin-top: 2rem; border-color: #fecdd3; background-color: #fff1f2;">
+  <h3 style="font-size: 1.15rem; font-weight: 700; color: #9f1239; margin-bottom: 0.35rem;">
+    ⚠️ Limpeza Geral de Registros
+  </h3>
+  <p style="font-size: 0.88rem; color: #881337; margin-bottom: 1.25rem;">
+    Exclui permanentemente todos os registros de horas, períodos e zera o saldo acumulado, deixando seu sistema completamente limpo para novos lançamentos.
+  </p>
+
+  <form method="POST" action="{{ url_for('settings_view') }}" id="form-reset-all">
+    <input type="hidden" name="action" value="reset_all_data">
+
+    <!-- Ação Inicial: Botão de Gatilho -->
+    <div id="reset-initial-action">
+      <button type="button" class="btn btn-danger" id="btn-show-reset-confirm" onclick="showResetConfirmation()">
+        🗑 Resetar Meus Registros de Horas
+      </button>
+    </div>
+
+    <!-- Painel de Confirmação em Linha (Compatível com iFrame) -->
+    <div id="reset-confirm-box" style="display: none; background: #ffffff; border: 2px solid #e11d48; border-radius: 8px; padding: 1.25rem; margin-top: 0.5rem; box-shadow: 0 4px 12px rgba(225, 29, 72, 0.12);">
+      <div style="display: flex; gap: 0.75rem; align-items: flex-start; margin-bottom: 1rem;">
+        <span style="font-size: 1.75rem; line-height: 1;">⚠️</span>
+        <div>
+          <strong style="color: #9f1239; font-size: 1rem; display: block; margin-bottom: 0.25rem;">
+            Tem certeza absoluta? Esta ação não pode ser desfeita.
+          </strong>
+          <span style="color: #4b5563; font-size: 0.88rem; line-height: 1.4; display: block;">
+            Todos os seus registros de horas trabalhadas, intervalos, faltas e o saldo acumulado do banco de horas serão apagados do sistema.
+          </span>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+        <button type="submit" class="btn btn-danger" id="btn-reset-all-data">
+          ✓ Sim, Confirmar e Apagar Meus Registros
+        </button>
+        <button type="button" class="btn btn-secondary" id="btn-cancel-reset" onclick="hideResetConfirmation()">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </form>
+
+  {% if user_data.role == 'admin' or user_email == 'ncodestechnologies@gmail.com' %}
+  <!-- Reset Completo de Fábrica do Sistema (Apenas Admin) -->
+  <div style="margin-top: 1.75rem; padding-top: 1.25rem; border-top: 1px dashed #fca5a5;">
+    <h4 style="font-size: 1rem; font-weight: 700; color: #7f1d1d; margin-bottom: 0.25rem;">
+      ⚙️ Reset Geral de Fábrica (Administrador Master)
+    </h4>
+    <p style="font-size: 0.84rem; color: #991b1b; margin-bottom: 0.85rem;">
+      Recria a base de dados do zero, apaga todas as contas e restaura o Administrador Master com os parâmetros iniciais limpos.
+    </p>
+
+    <form method="POST" action="{{ url_for('settings_view') }}" id="form-reset-system">
+      <input type="hidden" name="action" value="reset_system">
+      <div id="reset-system-initial">
+        <button type="button" class="btn btn-danger" style="background-color: #991b1b; border-color: #7f1d1d;" onclick="showSystemResetConfirm()">
+          💣 Reset Geral de Fábrica do Sistema
+        </button>
+      </div>
+
+      <div id="reset-system-confirm" style="display: none; background: #fff5f5; border: 2px solid #991b1b; border-radius: 8px; padding: 1.25rem; margin-top: 0.5rem;">
+        <p style="font-weight: 700; color: #7f1d1d; font-size: 0.95rem; margin-bottom: 0.5rem;">
+          Atenção: Todo o banco de dados local será recriado e o sistema retornará ao estado inicial de fábrica.
+        </p>
+        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+          <button type="submit" class="btn btn-danger" style="background-color: #991b1b; border-color: #7f1d1d;">
+            Confirmar Reset Geral do Sistema
+          </button>
+          <button type="button" class="btn btn-secondary" onclick="hideSystemResetConfirm()">
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+  function showResetConfirmation() {
+    var initial = document.getElementById('reset-initial-action');
+    var confirmBox = document.getElementById('reset-confirm-box');
+    if (initial) initial.style.display = 'none';
+    if (confirmBox) confirmBox.style.display = 'block';
+  }
+
+  function hideResetConfirmation() {
+    var initial = document.getElementById('reset-initial-action');
+    var confirmBox = document.getElementById('reset-confirm-box');
+    if (confirmBox) confirmBox.style.display = 'none';
+    if (initial) initial.style.display = 'block';
+  }
+
+  function showSystemResetConfirm() {
+    var initial = document.getElementById('reset-system-initial');
+    var confirmBox = document.getElementById('reset-system-confirm');
+    if (initial) initial.style.display = 'none';
+    if (confirmBox) confirmBox.style.display = 'block';
+  }
+
+  function hideSystemResetConfirm() {
+    var initial = document.getElementById('reset-system-initial');
+    var confirmBox = document.getElementById('reset-system-confirm');
+    if (confirmBox) confirmBox.style.display = 'none';
+    if (initial) initial.style.display = 'block';
+  }
+</script>
+{% endblock %}

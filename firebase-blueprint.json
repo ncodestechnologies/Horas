@@ -1,0 +1,70 @@
+{
+  "projectId": "dub-courier-hhh41",
+  "databaseId": "ai-studio-meucontroledehor-d0196ff7-8bfe-4587-8503-c93f7d8a13cb",
+  "collections": [
+    {
+      "id": "users",
+      "description": "Perfis de usuários do sistema de controle de horas",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string", "description": "E-mail de cadastro do usuário" },
+          "createdAt": { "type": "string", "description": "Timestamp ISO de criação" }
+        },
+        "required": ["email"]
+      },
+      "rules": "Usuários autenticados podem ler e criar/atualizar seu próprio perfil onde request.auth.uid == userId."
+    },
+    {
+      "id": "settings",
+      "description": "Configurações de jornada, tolerância e banco de horas por usuário",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "string", "description": "ID do usuário proprietário" },
+          "dailyHoursMinutes": { "type": "integer", "description": "Meta diária em minutos (ex: 480)" },
+          "defaultStart": { "type": "string", "description": "Horário padrão de entrada" },
+          "defaultBreakStart": { "type": "string", "description": "Início do intervalo" },
+          "defaultBreakEnd": { "type": "string", "description": "Término do intervalo" },
+          "defaultEnd": { "type": "string", "description": "Horário padrão de saída" },
+          "toleranceMinutes": { "type": "integer", "description": "Tolerância diária em minutos" },
+          "bankActive": { "type": "boolean", "description": "Se o banco de horas está ativo" },
+          "initialBalanceMinutes": { "type": "integer", "description": "Saldo inicial em minutos" },
+          "updatedAt": { "type": "string", "description": "Timestamp ISO da última alteração" }
+        },
+        "required": ["userId", "dailyHoursMinutes"]
+      },
+      "rules": "Apenas o usuário proprietário pode ler, criar e atualizar suas configurações."
+    },
+    {
+      "id": "work_days",
+      "description": "Registros de dias trabalhados, intervalos e tipo de jornada",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "string", "description": "ID do usuário proprietário" },
+          "date": { "type": "string", "description": "Data no formato YYYY-MM-DD" },
+          "dayType": { "type": "string", "description": "trabalho, folga, feriado, falta, atestado, compensacao" },
+          "periods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "periodOrder": { "type": "integer" },
+                "startTime": { "type": "string" },
+                "endTime": { "type": "string" }
+              },
+              "required": ["periodOrder", "startTime", "endTime"]
+            },
+            "description": "Lista de turnos/períodos de trabalho"
+          },
+          "observation": { "type": "string", "description": "Observações do dia" },
+          "createdAt": { "type": "string", "description": "Data de criação" },
+          "updatedAt": { "type": "string", "description": "Data de atualização" }
+        },
+        "required": ["userId", "date", "dayType"]
+      },
+      "rules": "Usuários autenticados podem ler, criar, atualizar e excluir seus próprios registros de dias."
+    }
+  ]
+}

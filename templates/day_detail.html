@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}Detalhes do Dia {{ date_fmt }}{% endblock %}
+
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto;">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Jornada de {{ date_fmt }}</h1>
+      <p class="page-subtitle">{{ day_name_pt }} • Categoria: 
+        {% if day and day.day_type == 'feriado' %}
+          <span class="status-badge" style="background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a;">🟠 Feriado</span>
+        {% elif day and day.day_type == 'folga' %}
+          <span class="status-badge" style="background-color: #d1fae5; color: #047857; border: 1px solid #a7f3d0;">🟢 Folga / Descanso</span>
+        {% elif day and day.day_type == 'falta' %}
+          <span class="status-badge status-falta">🔴 Falta / A Pagar</span>
+        {% elif day and day.day_type == 'trabalho' %}
+          <span class="status-badge" style="background-color: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe;">🔵 Trabalhado</span>
+        {% elif has_record %}
+          <span class="status-badge status-registrado">{{ day.day_type|capitalize }}</span>
+        {% else %}
+          <span class="status-badge status-vazio">⚪ Sem registro</span>
+        {% endif %}
+      </p>
+    </div>
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+      <a href="{{ url_for('calendar_view', year=year, month=month) }}" class="btn btn-secondary btn-sm" id="btn-back-calendar">
+        ← Voltar ao Calendário
+      </a>
+      {% if has_record %}
+        <a href="{{ url_for('edit_time', day_id=day.id) }}" class="btn btn-primary btn-sm" id="btn-edit-day">
+          ✏️ Editar
+        </a>
+        <a href="{{ url_for('confirm_delete', day_id=day.id) }}" class="btn btn-danger btn-sm" id="btn-delete-day">
+          🗑 Excluir
+        </a>
+      {% else %}
+        <a href="{{ url_for('register_time', date=date_str) }}" class="btn btn-primary btn-sm" id="btn-new-register-day">
+          + Registrar Horário neste Dia
+        </a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if day and day.day_type == 'falta' %}
+    <!-- Aviso de Falta a Pagar -->
+    <div class="debt-warning-banner" style="margin-bottom: 2rem;">
+      <div class="debt-warning-icon">⚠️</div>
+      <div class="debt-warning-text">
+        <strong>Dia Registrado como Falta — Horas a Pagar</strong>
+        <span>
+          Neste dia não houve atividade laboral. A carga horária prevista de <strong>{{ metrics.expected_str }}</strong> foi lançada como débito (saldo {{ metrics.balance_str }}) no seu banco de horas. Este valor continuará sendo cobrado mesmo após a virada do mês, até você compensá-lo.
+        </span>
+      </div>
+      <a href="{{ url_for('edit_time', day_id=day.id) }}" class="btn btn-danger btn-sm" style="white-space: nowrap;">
+        Compensar / Editar
+      </a>
+    </div>
+  {% endif %}
+
+  <!-- Cards de Métricas do Dia -->
+  <div class="stats-grid" style="margin-bottom: 2rem;">
+    <div class="stat-card">
+      <div class="stat-label">Total Trabalhado</div>
+      <div class="stat-value">{{ metrics.total_worked_str }}</div>
+      <div class="stat-subtext">{{ metrics.periods_count }} período(s) somados</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">Jornada Prevista</div>
+      <div class="stat-value">{{ metrics.expected_str }}</div>
+      <div class="stat-subtext">Carga horária padrão</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">Horas Extras</div>
+      <div class="stat-value text-positive">{{ metrics.overtime_str }}</div>
+      <div class="stat-subtext">Tempo trabalhado a mais</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">Horas Faltantes</div>
+      <div class="stat-value text-negative">{{ metrics.missing_str }}</div>
+      <div class="stat-subtext">Tempo faltante para a meta</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">Saldo do Dia</div>
+      <div class="stat-value {% if '+' in metrics.balance_str %}text-positive{% elif '-' in metrics.balance_str %}text-negative{% else %}text-neutral{% endif %}">
+        {{ metrics.balance_str }}
+      </div>
+      <div class="stat-subtext">Diferença em relação à prevista</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">Tempo de Intervalo</div>
+      <div class="stat-value">{{ metrics.break_str }}</div>
+      <div class="stat-subtext">Soma dos intervalos entre turnos</div>
+    </div>
+  </div>
+
+  <!-- Tabela de Períodos Registrados -->
+  <div class="table-card">
+    <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); background: var(--bg-surface);">
+      <h3 style="font-size: 1.1rem; font-weight: 700;">Horários e Períodos Detalhados</h3>
+    </div>
+    
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Período</th>
+            <th>Horário de Entrada</th>
+            <th>Horário de Saída</th>
+            <th>Duração</th>
+            <th>Observação / Tipo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if periods %}
+            {% for p in periods %}
+              <tr>
+                <td><strong>Turno {{ loop.index }}</strong></td>
+                <td>{{ p.start_time }}</td>
+                <td>{{ p.end_time }}</td>
+                <td><strong>{{ p.duration_str }}</strong></td>
+                <td>
+                  {% if loop.first %}Entrada Inicial{% elif loop.last %}Saída Final{% else %}Turno Intermediário{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="5" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                Nenhum período de trabalho registrado para este dia.
+              </td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Observações -->
+  <div class="form-card" style="margin-top: 1.5rem; max-width: 100%;">
+    <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem;">Observações Registradas</h3>
+    {% if observation %}
+      <p style="font-size: 0.95rem; color: var(--text-main); background: var(--bg-subtle); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+        {{ observation }}
+      </p>
+    {% else %}
+      <p style="color: var(--text-muted); font-size: 0.9rem; font-style: italic;">
+        Nenhuma observação informada para esta data.
+      </p>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

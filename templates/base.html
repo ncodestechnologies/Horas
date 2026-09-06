@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Meu Controle de Horas{% endblock %} — Sistema Pessoal</title>
+  <meta name="description" content="Sistema pessoal para controle e acompanhamento de jornada de trabalho e banco de horas.">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="{% if not session.get('user_id') %}auth-page{% endif %}">
+
+  <div class="app-layout {% if not session.get('user_id') %}unauth-layout{% endif %}">
+    {% if session.get('user_id') %}
+      <!-- Checkbox Hack para Mobile Drawer sem JS -->
+      <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Alternar menu de navegação">
+
+      <!-- Topbar Mobile (visível apenas em telas menores) -->
+      <div class="mobile-topbar">
+        <a href="{{ url_for('dashboard') }}" class="mobile-brand">
+          <span class="mobile-brand-icon">⏱</span>
+          <span class="mobile-brand-text">Controle de Horas</span>
+        </a>
+        <label for="nav-toggle" class="nav-toggle-label" id="nav-toggle-button" aria-label="Abrir menu">
+          <span></span>
+          <span></span>
+          <span></span>
+        </label>
+      </div>
+
+      <!-- Backdrop para fechar o menu no mobile clicando fora -->
+      <label for="nav-toggle" class="sidebar-backdrop" aria-label="Fechar menu"></label>
+
+      <!-- Sidebar Lateral (Professional Polish Theme: w-64 bg-[#1E3A8A] text-white) -->
+      <aside class="app-sidebar" id="app-sidebar">
+        <div class="sidebar-header">
+          <a href="{{ url_for('dashboard') }}" class="brand-link" id="brand-link">
+            <h1 class="sidebar-brand-title">Controle de Horas</h1>
+            <p class="sidebar-brand-sub">Sistema Pessoal</p>
+          </a>
+        </div>
+
+        <nav class="sidebar-nav">
+          <ul class="nav-menu" id="main-navigation">
+            <li class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
+              <a href="{{ url_for('dashboard') }}" id="nav-dashboard">
+                <span class="nav-icon">📊</span>
+                <span class="nav-text">Dashboard</span>
+              </a>
+            </li>
+            <li class="nav-item {% if active_page == 'register' %}active{% endif %}">
+              <a href="{{ url_for('register_time') }}" id="nav-register">
+                <span class="nav-icon">➕</span>
+                <span class="nav-text">Registrar Horário</span>
+              </a>
+            </li>
+            <li class="nav-item {% if active_page == 'calendar' %}active{% endif %}">
+              <a href="{{ url_for('calendar_view') }}" id="nav-calendar">
+                <span class="nav-icon">📅</span>
+                <span class="nav-text">Calendário</span>
+              </a>
+            </li>
+            <li class="nav-item {% if active_page == 'history' %}active{% endif %}">
+              <a href="{{ url_for('history_view') }}" id="nav-history">
+                <span class="nav-icon">🕒</span>
+                <span class="nav-text">Histórico</span>
+              </a>
+            </li>
+            <li class="nav-item {% if active_page == 'reports' %}active{% endif %}">
+              <a href="{{ url_for('reports_view') }}" id="nav-reports">
+                <span class="nav-icon">📄</span>
+                <span class="nav-text">Relatórios</span>
+              </a>
+            </li>
+            <li class="nav-item {% if active_page == 'settings' %}active{% endif %}">
+              <a href="{{ url_for('settings_view') }}" id="nav-settings">
+                <span class="nav-icon">⚙️</span>
+                <span class="nav-text">Configurações</span>
+              </a>
+            </li>
+          </ul>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="sidebar-user">
+            <div class="user-avatar" title="{{ session.get('user_email', 'Usuário') }}">
+              {{ (session.get('user_name') or session.get('user_email', 'UC'))[:2]|upper }}
+            </div>
+            <div class="user-info">
+              <p class="user-name">{{ session.get('user_name') or (session.get('user_email', 'Usuário').split('@')[0]|capitalize) }}</p>
+              {% if session.get('user_role') == 'admin' or session.get('user_email') == 'ncodestechnologies@gmail.com' %}
+                <span class="admin-badge" style="background: #fef08a; color: #854d0e; font-size: 0.7rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; display: inline-block; margin-bottom: 2px;">⭐ Admin Master</span>
+              {% endif %}
+              <a href="{{ url_for('logout') }}" class="user-logout" id="nav-logout">Sair da Conta</a>
+            </div>
+          </div>
+        </div>
+      </aside>
+    {% endif %}
+
+    <!-- Área de Conteúdo Principal -->
+    <div class="app-main-content">
+      <main class="main-container {% if not session.get('user_id') %}auth-container{% endif %}">
+        <!-- Mensagens Flash do Servidor -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="alerts-container" {% if not session.get('user_id') %}style="max-width: 420px; margin: 1.5rem auto 0;"{% endif %}>
+              {% for category, message in messages %}
+                <div class="alert alert-{{ category }}" role="alert">
+                  <span>{{ message }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+      </main>
+
+      {% if session.get('user_id') %}
+        <footer class="footer">
+          <p><strong>Meu Controle de Horas</strong> — Sistema Pessoal • 100% Python, HTML5 e CSS3 (Sem JavaScript)</p>
+        </footer>
+      {% endif %}
+    </div>
+  </div>
+
+</body>
+</html>

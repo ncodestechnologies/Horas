@@ -1,0 +1,141 @@
+import os
+import sqlite3
+from werkzeug.security import generate_password_hash
+
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'database.db')
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON;")
+    return conn
+
+def init_db():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT,
+        name TEXT,
+        cpf TEXT,
+        role TEXT DEFAULT 'user',
+        google_id TEXT,
+        avatar_url TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
+    # Garantir que colunas adicionadas existam caso a tabela já tenha sido criada anteriormente
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN name TEXT")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN cpf TEXT")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN google_id TEXT")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT")
+    except Exception:
+        pass
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL UNIQUE,
+        daily_hours_minutes INTEGER DEFAULT 480,
+        default_start TEXT DEFAULT '08:00',
+        default_break_start TEXT DEFAULT '12:00',
+        default_break_end TEXT DEFAULT '13:00',
+        default_end TEXT DEFAULT '17:00',
+        tolerance_minutes INTEGER DEFAULT 10,
+        bank_active INTEGER DEFAULT 1,
+        initial_balance_minutes INTEGER DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS work_days (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        day_type TEXT DEFAULT 'trabalho',
+        observation TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, date),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS work_periods (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        work_day_id INTEGER NOT NULL,
+        period_order INTEGER NOT NULL DEFAULT 1,
+        start_time TEXT NOT NULL,
+        end_time TEXT NOT NULL,
+        FOREIGN KEY (work_day_id) REFERENCES work_days(id) ON DELETE CASCADE
+    );
+    """)
+
+    # Verificar se a conta Admin master ncodestechnologies@gmail.com existe
+    cursor.execute("SELECT id FROM users WHERE LOWER(email) = 'ncodestechnologies@gmail.com'")
+    admin_user = cursor.fetchone()
+    admin_hash = generate_password_hash("Taijou13")
+    
+    if not admin_user:
+        cursor.execute("""
+            INSERT INTO users (email, password_hash, name, role) 
+            VALUES (?, ?, ?, ?)
+        """, ("ncodestechnologies@gmail.com", admin_hash, "Admin Master", "admin"))
+        user_id = cursor.lastrowid
+        cursor.execute("""
+        INSERT INTO settings (user_id, daily_hours_minutes, default_start, default_break_start, default_break_end, default_end, tolerance_minutes, bank_active, initial_balance_minutes)
+        VALUES (?, 480, '08:00', '12:00', '13:00', '17:00', 10, 1, 0)
+        """, (user_id,))
+        conn.commit()
+    else:
+        # Atualizar senha e papel para Admin Master
+        cursor.execute("""
+            UPDATE users 
+            SET password_hash = ?, role = 'admin', name = COALESCE(name, 'Admin Master')
+            WHERE id = ?
+        """, (admin_hash, admin_user['id']))
+        conn.commit()
+
+    conn.close()
+
+def reset_all_data():
+    """
+    Executa o reset completo solicitado pelo usuário:
+    - Recria tabelas com schema atualizado
+    - Restaura ncodestechnologies@gmail.com com a senha Taijou13 como Admin master
+    - Restaura configurações padrão
+    """
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("DROP TABLE IF EXISTS work_periods")
+    cursor.execute("DROP TABLE IF EXISTS work_days")
+    cursor.execute("DROP TABLE IF EXISTS settings")
+    cursor.execute("DROP TABLE IF EXISTS users")
+    conn.commit()
+    conn.close()
+
+    init_db()

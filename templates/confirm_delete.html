@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Confirmar Exclusão{% endblock %}
+
+{% block content %}
+<div class="confirm-delete-box">
+  <div class="confirm-icon">⚠️</div>
+  <h2 class="confirm-title">Tem certeza que deseja excluir este registro?</h2>
+  <p class="confirm-text">
+    Você está prestes a remover o registro de jornada do dia <strong>{{ date_fmt }}</strong>.<br>
+    Esta ação recalculará automaticamente o banco de horas e o saldo do mês.
+  </p>
+
+  <form method="POST" action="{{ url_for('delete_time', day_id=day.id) }}">
+    <div class="confirm-actions">
+      <a href="{{ url_for('history_view') }}" class="btn btn-secondary" id="btn-cancel-delete">
+        Cancelar
+      </a>
+      <button type="submit" class="btn btn-danger" id="btn-confirm-delete">
+        Sim, excluir registro
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

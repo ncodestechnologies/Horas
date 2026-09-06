@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}Histórico de Registros{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Histórico de Jornadas</h1>
+    <p class="page-subtitle">Consulte e filtre todos os seus registros de horas de trabalho anteriores.</p>
+  </div>
+  <a href="{{ url_for('register_time') }}" class="btn btn-primary btn-sm" id="btn-new-history-reg">
+    + Novo Registro
+  </a>
+</div>
+
+<!-- Barra de Filtros (Formulário HTML GET puro, SEM JAVASCRIPT) -->
+<div class="filter-bar">
+  <form method="GET" action="{{ url_for('history_view') }}" class="filter-form">
+    <div class="filter-group">
+      <label for="date_start">Data Inicial</label>
+      <input type="date" id="date_start" name="date_start" class="form-control" value="{{ filters.date_start }}">
+    </div>
+
+    <div class="filter-group">
+      <label for="date_end">Data Final</label>
+      <input type="date" id="date_end" name="date_end" class="form-control" value="{{ filters.date_end }}">
+    </div>
+
+    <div class="filter-group">
+      <label for="month_filter">Mês Específico</label>
+      <input type="month" id="month_filter" name="month_filter" class="form-control" value="{{ filters.month_filter }}">
+    </div>
+
+    <div class="filter-group">
+      <label for="status_filter">Status do Saldo</label>
+      <select id="status_filter" name="status_filter" class="form-control">
+        <option value="" {% if not filters.status_filter %}selected{% endif %}>Todos os Status</option>
+        <option value="positivo" {% if filters.status_filter == 'positivo' %}selected{% endif %}>🟢 Saldo Positivo (Horas Extras)</option>
+        <option value="negativo" {% if filters.status_filter == 'negativo' %}selected{% endif %}>🟡 Saldo Negativo (Faltantes)</option>
+        <option value="falta" {% if filters.status_filter == 'falta' %}selected{% endif %}>🔴 Faltas (A Pagar)</option>
+        <option value="zerado" {% if filters.status_filter == 'zerado' %}selected{% endif %}>⚪ Saldo Exato (00:00)</option>
+        <option value="folga" {% if filters.status_filter == 'folga' %}selected{% endif %}>🔵 Folgas / Licenças</option>
+      </select>
+    </div>
+
+    <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
+      <button type="submit" class="btn btn-primary" id="btn-filter-submit">
+        🔍 Filtrar
+      </button>
+      <a href="{{ url_for('history_view') }}" class="btn btn-secondary" id="btn-filter-clear">
+        Limpar
+      </a>
+    </div>
+  </form>
+</div>
+
+<!-- Tabela de Histórico -->
+<div class="table-card">
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Entrada</th>
+          <th>Intervalo (Saída)</th>
+          <th>Retorno</th>
+          <th>Saída Final</th>
+          <th>Trabalhado</th>
+          <th>Saldo</th>
+          <th>Status</th>
+          <th>Observações</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if records %}
+          {% for r in records %}
+            <tr>
+              <td>
+                <a href="{{ url_for('day_detail_view', date_str=r.date) }}" style="font-weight: 700; color: var(--primary); text-decoration: none;">
+                  {{ r.date_fmt }}
+                </a>
+              </td>
+              <td>{{ r.first_in }}</td>
+              <td>{{ r.break_out }}</td>
+              <td>{{ r.break_in }}</td>
+              <td>{{ r.last_out }}</td>
+              <td><strong>{{ r.total_worked_str }}</strong></td>
+              <td>
+                <span class="{% if '+' in r.balance_str %}text-positive{% elif '-' in r.balance_str %}text-negative{% endif %}" style="font-weight: 700;">
+                  {{ r.balance_str }}
+                </span>
+              </td>
+              <td>
+                {% if r.day_type == 'folga' %}
+                  <span class="status-badge status-folga">🟢 Folga</span>
+                {% elif r.day_type == 'feriado' %}
+                  <span class="status-badge" style="background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a;">🟠 Feriado</span>
+                {% elif r.day_type == 'falta' %}
+                  <span class="status-badge status-falta">🔴 Falta (A Pagar)</span>
+                {% elif r.status == 'incompleto' %}
+                  <span class="status-badge status-incompleto">🟡 Incompleto</span>
+                {% elif r.status == 'registrado' %}
+                  <span class="status-badge status-registrado">🟢 Registrado</span>
+                {% else %}
+                  <span class="status-badge status-vazio">⚪ Vazio</span>
+                {% endif %}
+              </td>
+              <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                {{ r.observation or '—' }}
+              </td>
+              <td>
+                <div class="table-actions">
+                  <a href="{{ url_for('day_detail_view', date_str=r.date) }}" class="btn btn-secondary btn-sm" title="Visualizar">Ver</a>
+                  <a href="{{ url_for('edit_time', day_id=r.id) }}" class="btn btn-secondary btn-sm" title="Editar">Editar</a>
+                  <a href="{{ url_for('confirm_delete', day_id=r.id) }}" class="btn btn-danger btn-sm" title="Excluir">Excluir</a>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="10" style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
+              Nenhum registro encontrado para os filtros selecionados.
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

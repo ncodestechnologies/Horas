@@ -1,0 +1,6 @@
+{
+  "name": "Meu Controle de Horas",
+  "description": "Sistema pessoal para registrar, controlar e acompanhar horas de trabalho, intervalos, saldo e banco de horas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

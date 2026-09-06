@@ -1,0 +1,11 @@
+{
+  "name": "meu-controle-de-horas",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "python3 app.py",
+    "build": "python3 -c \"import py_compile, glob; [py_compile.compile(f, doraise=True) for f in glob.glob('**/*.py', recursive=True)]\"",
+    "start": "python3 app.py",
+    "lint": "python3 -c \"import py_compile, glob; [py_compile.compile(f, doraise=True) for f in glob.glob('**/*.py', recursive=True)]\""
+  }
+}
