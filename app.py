@@ -119,19 +119,13 @@ def after_req(response):
 # AUTENTICAÇÃO E CADASTRO
 # ==============================================================================
 
-@app.route('/')
-@app.route('/api')
-@app.route('/api/')
-@app.route('/api/index')
-@app.route('/api/index.py')
-def root():
-    """Tela inicial: se logado, vai ao dashboard; se não logado, tela de criação de conta."""
+@app.route('/cadastro', methods=['GET', 'POST'], endpoint='register_user')
+@app.route('/', methods=['GET', 'POST'], endpoint='root_page')
+def register_user():
+    # Se já logado, vai direto ao painel
     if session.get('user_id'):
         return redirect(url_for('dashboard'))
-    return redirect(url_for('register_user'))
 
-@app.route('/cadastro', methods=['GET', 'POST'])
-def register_user():
     cfg = load_config() or {}
     oauth_client_id = cfg.get('oAuthClientId', '870123577586-pg4be1a64u837udo6eqatc0kr5g5ikb5.apps.googleusercontent.com')
 
