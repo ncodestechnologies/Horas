@@ -120,6 +120,10 @@ def after_req(response):
 # ==============================================================================
 
 @app.route('/')
+@app.route('/api')
+@app.route('/api/')
+@app.route('/api/index')
+@app.route('/api/index.py')
 def root():
     """Tela inicial: se logado, vai ao dashboard; se não logado, tela de criação de conta."""
     if session.get('user_id'):
