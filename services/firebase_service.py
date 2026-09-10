@@ -98,6 +98,98 @@ def get_firebase_status():
         'project_id': project_id
     }
 
+def sync_user_profile_to_firebase(user_id, email, name, cpf=None, role=None):
+    """
+    Sincroniza os dados cadastrais (nome, CPF, perfil) do usuário no Firestore
+    para garantir persistência entre sessões, dispositivos (celular/desktop) e deploys.
+    """
+    base_url, api_key = get_base_url()
+    if not base_url:
+        return False
+    doc_id = f"user_{user_id}"
+    payload = {
+        'userId': str(user_id),
+        'email': str(email or '').lower().strip(),
+        'name': str(name or ''),
+        'cpf': str(cpf or ''),
+        'role': str(role or 'user'),
+        'updatedAt': datetime.utcnow().isoformat()
+    }
+    body = {'fields': {k: to_firestore_value(v) for k, v in payload.items()}}
+    try:
+        r = requests.patch(
+            f"{base_url}/users/{doc_id}?key={api_key}",
+            json=body,
+            timeout=5
+        )
+        return r.status_code in (200, 201)
+    except Exception as e:
+        logger.error(f"Erro ao sincronizar perfil do usuário no Firebase: {e}")
+        return False
+
+def pull_user_profile_from_firebase(user_id=None, email=None):
+    """
+    Recupera os dados de perfil (nome, CPF, role) salvos na nuvem Firestore.
+    Suporta busca direta por ID do usuário ou consulta por e-mail.
+    """
+    base_url, api_key = get_base_url()
+    if not base_url:
+        return None
+    try:
+        # 1. Busca direta pelo documento doc_id
+        if user_id:
+            doc_id = f"user_{user_id}"
+            r = requests.get(f"{base_url}/users/{doc_id}?key={api_key}", timeout=5)
+            if r.status_code == 200:
+                fields = r.json().get('fields', {})
+                name = fields.get('name', {}).get('stringValue', '').strip()
+                cpf = fields.get('cpf', {}).get('stringValue', '').strip()
+                mail = fields.get('email', {}).get('stringValue', '').strip()
+                role = fields.get('role', {}).get('stringValue', 'user').strip()
+                return {
+                    'name': name or None,
+                    'cpf': cpf or None,
+                    'email': mail or None,
+                    'role': role or 'user'
+                }
+
+        # 2. Busca pelo e-mail do usuário se o doc_id direto não retornou
+        if email:
+            query_body = {
+                'structuredQuery': {
+                    'from': [{'collectionId': 'users'}],
+                    'where': {
+                        'fieldFilter': {
+                            'field': {'fieldPath': 'email'},
+                            'op': 'EQUAL',
+                            'value': {'stringValue': str(email).lower().strip()}
+                        }
+                    },
+                    'limit': 1
+                }
+            }
+            r_q = requests.post(f"{base_url}:runQuery?key={api_key}", json=query_body, timeout=6)
+            if r_q.status_code == 200:
+                items = r_q.json()
+                for item in items:
+                    doc = item.get('document')
+                    if doc:
+                        fields = doc.get('fields', {})
+                        name = fields.get('name', {}).get('stringValue', '').strip()
+                        cpf = fields.get('cpf', {}).get('stringValue', '').strip()
+                        mail = fields.get('email', {}).get('stringValue', '').strip()
+                        role = fields.get('role', {}).get('stringValue', 'user').strip()
+                        return {
+                            'name': name or None,
+                            'cpf': cpf or None,
+                            'email': mail or None,
+                            'role': role or 'user'
+                        }
+        return None
+    except Exception as e:
+        logger.error(f"Erro ao buscar perfil no Firebase: {e}")
+        return None
+
 def sync_settings_to_firebase(user_id, settings_data):
     base_url, api_key = get_base_url()
     if not base_url:
@@ -204,14 +296,26 @@ def reset_user_data_in_firebase(user_id):
 
 def sync_all_local_to_firebase(user_id, conn):
     """
-    Exporta todos os registros e configurações locais do usuário atual para a nuvem Firestore.
+    Exporta todos os registros, configurações e perfil do usuário atual para a nuvem Firestore.
     """
     base_url, api_key = get_base_url()
     if not base_url:
         return False, "Firebase não configurado"
     try:
         cursor = conn.cursor()
-        
+
+        # 0. Sync User Profile (Nome, CPF, E-mail)
+        cursor.execute("SELECT id, email, name, cpf, role FROM users WHERE id = ?", (user_id,))
+        u_row = cursor.fetchone()
+        if u_row:
+            sync_user_profile_to_firebase(
+                user_id=u_row['id'],
+                email=u_row['email'],
+                name=u_row['name'],
+                cpf=u_row['cpf'],
+                role=u_row['role']
+            )
+
         # 1. Sync Settings
         cursor.execute("SELECT * FROM settings WHERE user_id = ?", (user_id,))
         s_row = cursor.fetchone()
@@ -235,7 +339,7 @@ def sync_all_local_to_firebase(user_id, conn):
             )
             count += 1
 
-        return True, f"{count} registros e configurações sincronizados com o Firestore!"
+        return True, f"Perfil, configurações e {count} dias sincronizados com o Firestore!"
     except Exception as e:
         logger.error(f"Erro na sincronização completa: {e}")
         return False, f"Falha na sincronização: {str(e)}"
@@ -249,6 +353,20 @@ def pull_from_firebase(user_id, conn):
         return False, "Firebase não configurado"
     try:
         cursor = conn.cursor()
+
+        # 0. Puxar Perfil do Usuário (Nome, CPF)
+        cursor.execute("SELECT email FROM users WHERE id = ?", (user_id,))
+        u_row = cursor.fetchone()
+        u_email = u_row['email'] if u_row else None
+        prof = pull_user_profile_from_firebase(user_id=user_id, email=u_email)
+        if prof and (prof.get('name') or prof.get('cpf')):
+            cursor.execute("""
+                UPDATE users 
+                SET name = COALESCE(NULLIF(?, ''), name),
+                    cpf = COALESCE(NULLIF(?, ''), cpf)
+                WHERE id = ?
+            """, (prof.get('name'), prof.get('cpf'), user_id))
+            conn.commit()
 
         # 1. Puxar Settings
         doc_id = f"user_{user_id}"

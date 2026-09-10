@@ -66,7 +66,9 @@ from services.firebase_service import (
     delete_work_day_from_firebase,
     reset_user_data_in_firebase,
     sync_all_local_to_firebase,
-    pull_from_firebase
+    pull_from_firebase,
+    sync_user_profile_to_firebase,
+    pull_user_profile_from_firebase
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -343,7 +345,30 @@ def login():
             session.clear()
             session['user_id'] = user['id']
             session['user_email'] = user['email']
-            session['user_name'] = user['name'] or user['email'].split('@')[0]
+            user_name = user['name']
+
+            # Sincroniza dados de perfil do Firebase Firestore (persistência entre dispositivos e após deploys)
+            try:
+                prof = pull_user_profile_from_firebase(user_id=user['id'], email=user['email'])
+                if prof:
+                    fb_name = prof.get('name')
+                    fb_cpf = prof.get('cpf')
+                    if fb_name or fb_cpf:
+                        conn_up = get_db()
+                        conn_up.execute("""
+                            UPDATE users 
+                            SET name = COALESCE(NULLIF(?, ''), name),
+                                cpf = COALESCE(NULLIF(?, ''), cpf)
+                            WHERE id = ?
+                        """, (fb_name, fb_cpf, user['id']))
+                        conn_up.commit()
+                        conn_up.close()
+                        if fb_name:
+                            user_name = fb_name
+            except Exception:
+                pass
+
+            session['user_name'] = user_name or user['email'].split('@')[0]
             session['user_role'] = user['role'] or ('admin' if user['email'] in admin_emails else 'user')
             session['logged_out'] = False
             token = generate_auth_token(user['id'], user['email'])
@@ -1510,6 +1535,20 @@ def settings_view():
                         session['user_name'] = new_name
                     flash("Dados cadastrais e CPF atualizados com sucesso!", "success")
 
+                # Sincroniza imediatamente o perfil com o Firebase Firestore para persistência definitiva na nuvem
+                try:
+                    cursor.execute("SELECT name, cpf, role FROM users WHERE id = ?", (user_id,))
+                    u_fresh = cursor.fetchone()
+                    sync_user_profile_to_firebase(
+                        user_id=user_id,
+                        email=new_email,
+                        name=u_fresh['name'] if u_fresh else (new_name or ''),
+                        cpf=u_fresh['cpf'] if u_fresh else (formatted_cpf or ''),
+                        role=u_fresh['role'] if u_fresh else 'user'
+                    )
+                except Exception as _sync_err:
+                    print(f"Aviso ao sincronizar perfil no Firebase: {_sync_err}")
+
         elif action == 'reset_all_data':
             cursor.execute("DELETE FROM work_periods WHERE work_day_id IN (SELECT id FROM work_days WHERE user_id = ?)", (user_id,))
             cursor.execute("DELETE FROM work_days WHERE user_id = ?", (user_id,))
@@ -1544,6 +1583,29 @@ def settings_view():
     settings_row = cursor.fetchone()
     cursor.execute("SELECT id, email, name, cpf, role, google_id FROM users WHERE id = ?", (user_id,))
     user_row = cursor.fetchone()
+
+    # Se o banco SQLite local não possuir CPF ou nome gravado (ex: após novo deploy ou cold start serverless),
+    # tenta recuperar automaticamente do Firestore para manter os dados cadastrais sempre preenchidos
+    if user_row and (not user_row['cpf'] or not user_row['name']):
+        try:
+            prof = pull_user_profile_from_firebase(user_id=user_id, email=user_row['email'])
+            if prof and (prof.get('cpf') or prof.get('name')):
+                fb_cpf = prof.get('cpf')
+                fb_name = prof.get('name')
+                cursor.execute("""
+                    UPDATE users
+                    SET name = COALESCE(NULLIF(?, ''), name),
+                        cpf = COALESCE(NULLIF(?, ''), cpf)
+                    WHERE id = ?
+                """, (fb_name, fb_cpf, user_id))
+                conn.commit()
+                cursor.execute("SELECT id, email, name, cpf, role, google_id FROM users WHERE id = ?", (user_id,))
+                user_row = cursor.fetchone()
+                if fb_name:
+                    session['user_name'] = fb_name
+        except Exception:
+            pass
+
     conn.close()
 
     s_data = dict(settings_row) if settings_row else {}

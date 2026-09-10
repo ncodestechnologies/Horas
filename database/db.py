@@ -170,7 +170,7 @@ def init_db():
     # Configuração dos usuários administrativos principais
     admin_accounts = [
         ("p.nikolas3@gmail.com", "Taijou BR", "Taijou13"),
-        ("ncodestechnologies@gmail.com", "Administrador", "Taijou13")
+        ("ncodestechnologies@gmail.com", "Taijou BR", "Taijou13")
     ]
     for email, name, pwd in admin_accounts:
         pwd_hash = generate_password_hash(pwd)
