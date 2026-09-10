@@ -1191,12 +1191,11 @@ def history_view():
 # RELATÓRIOS & EXPORTAÇÕES (100% PYTHON - POR MÊS SELECIONADO)
 # ==============================================================================
 
-MONTH_NAMES_PT = [
+MONTH_LIST_PT = [
     (1, 'Janeiro'), (2, 'Fevereiro'), (3, 'Março'), (4, 'Abril'),
     (5, 'Maio'), (6, 'Junho'), (7, 'Julho'), (8, 'Agosto'),
     (9, 'Setembro'), (10, 'Outubro'), (11, 'Novembro'), (12, 'Dezembro')
 ]
-MONTH_MAP = {num: name for num, name in MONTH_NAMES_PT}
 
 def _parse_report_month(req_args):
     """
@@ -1263,7 +1262,7 @@ def _parse_report_month(req_args):
     return {
         'year': year,
         'month': month,
-        'month_name': MONTH_MAP.get(month, f"Mês {month}"),
+        'month_name': MONTH_NAMES_PT.get(month, f"Mês {month}"),
         'month_picker_val': f"{year}-{month:02d}",
         'start_date': start_date,
         'end_date': end_date,
@@ -1305,7 +1304,7 @@ def reports_view():
         prev_year=info['prev_year'],
         next_month=info['next_month'],
         next_year=info['next_year'],
-        all_months=MONTH_NAMES_PT,
+        all_months=MONTH_LIST_PT,
         available_years=available_years,
         summary=summary,
         cumulative_bank_mins=cumulative_bank_mins,
