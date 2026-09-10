@@ -193,12 +193,6 @@ def after_req(response):
 def health_check():
     return jsonify({"status": "healthy", "app": "meu-controle-de-horas"}), 200
 
-@app.route('/', endpoint='root_page')
-def root_page():
-    if session.get('user_id'):
-        return redirect(url_for('dashboard'))
-    return redirect(url_for('login'))
-
 @app.route('/cadastro', methods=['GET', 'POST'], endpoint='register_user')
 def register_user():
     # Se já logado, vai direto ao painel
@@ -297,7 +291,8 @@ def register_user():
 
     return render_template('register_user.html', active_page='login')
 
-@app.route('/login', methods=['GET', 'POST'])
+@app.route('/', methods=['GET', 'POST'], endpoint='root_page')
+@app.route('/login', methods=['GET', 'POST'], endpoint='login')
 def login():
     if request.method == 'POST':
         email = (request.form.get('email') or '').strip().lower()
@@ -1193,65 +1188,141 @@ def history_view():
     )
 
 # ==============================================================================
-# RELATÓRIOS & EXPORTAÇÕES (100% PYTHON)
+# RELATÓRIOS & EXPORTAÇÕES (100% PYTHON - POR MÊS SELECIONADO)
 # ==============================================================================
+
+MONTH_NAMES_PT = [
+    (1, 'Janeiro'), (2, 'Fevereiro'), (3, 'Março'), (4, 'Abril'),
+    (5, 'Maio'), (6, 'Junho'), (7, 'Julho'), (8, 'Agosto'),
+    (9, 'Setembro'), (10, 'Outubro'), (11, 'Novembro'), (12, 'Dezembro')
+]
+MONTH_MAP = {num: name for num, name in MONTH_NAMES_PT}
+
+def _parse_report_month(req_args):
+    """
+    Identifica com precisão o mês e o ano selecionados pelo usuário,
+    suportando query params (month, year), seletores HTML (month_picker YYYY-MM)
+    ou datas de fallback. Garante que qualquer mês (ex: Agosto/08) seja selecionado com precisão.
+    """
+    now = datetime.now()
+    year = None
+    month = None
+
+    # 1. Seletor de mês nativo (YYYY-MM)
+    month_picker = (req_args.get('month_picker') or '').strip()
+    if month_picker and '-' in month_picker:
+        try:
+            parts = month_picker.split('-')
+            year = int(parts[0])
+            month = int(parts[1])
+        except (ValueError, IndexError):
+            pass
+
+    # 2. Parâmetro 'month' no formato YYYY-MM ou numérico
+    if not (year and month):
+        m_param = (req_args.get('month') or '').strip()
+        y_param = (req_args.get('year') or '').strip()
+        if '-' in m_param:
+            try:
+                parts = m_param.split('-')
+                year = int(parts[0])
+                month = int(parts[1])
+            except (ValueError, IndexError):
+                pass
+        elif m_param:
+            try:
+                month = int(m_param)
+                year = int(y_param) if y_param else now.year
+            except ValueError:
+                pass
+
+    # 3. Fallback para start_date ou start (ex: "2026-08-01")
+    if not (year and month):
+        st = (req_args.get('start_date') or req_args.get('start') or '').strip()
+        if len(st) >= 7 and st[4] == '-':
+            try:
+                year = int(st[:4])
+                month = int(st[5:7])
+            except (ValueError, IndexError):
+                pass
+
+    # 4. Fallback padrão: Mês e Ano atuais
+    if not year or not month or month < 1 or month > 12 or year < 2000 or year > 2100:
+        year = now.year
+        month = now.month
+
+    start_date = f"{year}-{month:02d}-01"
+    _, last_d = calendar.monthrange(year, month)
+    end_date = f"{year}-{month:02d}-{last_d:02d}"
+
+    prev_month = 12 if month == 1 else month - 1
+    prev_year = year - 1 if month == 1 else year
+    next_month = 1 if month == 12 else month + 1
+    next_year = year + 1 if month == 12 else year
+
+    return {
+        'year': year,
+        'month': month,
+        'month_name': MONTH_MAP.get(month, f"Mês {month}"),
+        'month_picker_val': f"{year}-{month:02d}",
+        'start_date': start_date,
+        'end_date': end_date,
+        'last_day': last_d,
+        'prev_month': prev_month,
+        'prev_year': prev_year,
+        'next_month': next_month,
+        'next_year': next_year
+    }
 
 @app.route('/relatorios')
 @login_required
 def reports_view():
     user_id = session['user_id']
-    preset = request.args.get('preset', 'this_month')
-    start_date = request.args.get('start_date', '').strip()
-    end_date = request.args.get('end_date', '').strip()
-
+    info = _parse_report_month(request.args)
     now = datetime.now()
 
-    if preset == 'this_month' and not (start_date and end_date and preset == 'custom'):
-        start_date = f"{now.year}-{now.month:02d}-01"
-        _, last_d = calendar.monthrange(now.year, now.month)
-        end_date = f"{now.year}-{now.month:02d}-{last_d:02d}"
-    elif preset == 'last_month':
-        m = 12 if now.month == 1 else now.month - 1
-        y = now.year - 1 if now.month == 1 else now.year
-        start_date = f"{y}-{m:02d}-01"
-        _, last_d = calendar.monthrange(y, m)
-        end_date = f"{y}-{m:02d}-{last_d:02d}"
-    elif preset == 'this_week':
-        # Começa no Domingo da semana atual
-        start_dt = now - timedelta(days=(now.weekday() + 1) % 7)
-        end_dt = start_dt + timedelta(days=6)
-        start_date = start_dt.strftime('%Y-%m-%d')
-        end_date = end_dt.strftime('%Y-%m-%d')
-    else:
-        if not start_date:
-            start_date = f"{now.year}-{now.month:02d}-01"
-        if not end_date:
-            _, last_d = calendar.monthrange(now.year, now.month)
-            end_date = f"{now.year}-{now.month:02d}-{last_d:02d}"
-
-    summary = generate_report_summary(user_id, start_date, end_date)
+    summary = generate_report_summary(user_id, info['start_date'], info['end_date'])
     cumulative_bank_mins, cumulative_bank_str = get_cumulative_bank_balance(user_id)
     bank_breakdown = get_bank_debit_breakdown(user_id)
+
+    # Anos disponíveis para o seletor (3 anos atrás até 3 anos à frente)
+    available_years = list(range(now.year - 3, now.year + 4))
+    if info['year'] not in available_years:
+        available_years.append(info['year'])
+        available_years.sort()
 
     return render_template(
         'reports.html',
         active_page='reports',
-        preset=preset,
+        selected_year=info['year'],
+        selected_month=info['month'],
+        month_name=info['month_name'],
+        month_picker_val=info['month_picker_val'],
+        start_date=info['start_date'],
+        end_date=info['end_date'],
+        last_day=info['last_day'],
+        prev_month=info['prev_month'],
+        prev_year=info['prev_year'],
+        next_month=info['next_month'],
+        next_year=info['next_year'],
+        all_months=MONTH_NAMES_PT,
+        available_years=available_years,
         summary=summary,
         cumulative_bank_mins=cumulative_bank_mins,
         cumulative_bank_str=cumulative_bank_str,
-        bank_breakdown=bank_breakdown
+        bank_breakdown=bank_breakdown,
+        current_year=now.year,
+        current_month=now.month
     )
 
 @app.route('/relatorios/exportar/csv')
 @login_required
 def export_csv():
     user_id = session['user_id']
-    start = request.args.get('start', datetime.now().strftime('%Y-%m-01'))
-    end = request.args.get('end', datetime.now().strftime('%Y-%m-%d'))
-
-    csv_stream = export_to_csv(user_id, start, end)
-    filename = f"controle_horas_{start}_a_{end}.csv"
+    info = _parse_report_month(request.args)
+    csv_stream = export_to_csv(user_id, info['start_date'], info['end_date'])
+    month_slug = info['month_name'].lower()
+    filename = f"relatorio_{month_slug}_{info['year']}.csv"
     return send_file(
         csv_stream,
         mimetype="text/csv; charset=utf-8",
@@ -1263,11 +1334,10 @@ def export_csv():
 @login_required
 def export_excel():
     user_id = session['user_id']
-    start = request.args.get('start', datetime.now().strftime('%Y-%m-01'))
-    end = request.args.get('end', datetime.now().strftime('%Y-%m-%d'))
-
-    excel_stream = export_to_excel(user_id, start, end)
-    filename = f"controle_horas_{start}_a_{end}.xlsx"
+    info = _parse_report_month(request.args)
+    excel_stream = export_to_excel(user_id, info['start_date'], info['end_date'])
+    month_slug = info['month_name'].lower()
+    filename = f"relatorio_{month_slug}_{info['year']}.xlsx"
     return send_file(
         excel_stream,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1279,11 +1349,10 @@ def export_excel():
 @login_required
 def export_pdf():
     user_id = session['user_id']
-    start = request.args.get('start', datetime.now().strftime('%Y-%m-01'))
-    end = request.args.get('end', datetime.now().strftime('%Y-%m-%d'))
-
-    pdf_stream = export_to_pdf(user_id, start, end)
-    filename = f"controle_horas_{start}_a_{end}.pdf"
+    info = _parse_report_month(request.args)
+    pdf_stream = export_to_pdf(user_id, info['start_date'], info['end_date'])
+    month_slug = info['month_name'].lower()
+    filename = f"relatorio_{month_slug}_{info['year']}.pdf"
     return send_file(
         pdf_stream,
         mimetype="application/pdf",

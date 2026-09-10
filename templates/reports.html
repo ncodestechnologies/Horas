@@ -5,56 +5,87 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <h1 class="page-title">Relatórios e Exportações</h1>
-    <p class="page-subtitle">Gere relatórios consolidados e exporte dados em CSV, Excel ou PDF diretamente do servidor Python.</p>
+    <h1 class="page-title">Relatório de {{ month_name }} de {{ selected_year }}</h1>
+    <p class="page-subtitle">Consolidado mensal de 01/{{ "%02d"|format(selected_month) }}/{{ selected_year }} a {{ "%02d"|format(last_day) }}/{{ "%02d"|format(selected_month) }}/{{ selected_year }} • Exporte em CSV, Excel ou PDF</p>
   </div>
 
-  <!-- Botões de Exportação no Servidor Python (Links GET com download de arquivo) -->
+  <!-- Botões de Exportação no Servidor Python (Download por Mês Selecionado) -->
   <div class="export-bar">
-    <a href="{{ url_for('export_csv', start=summary.start_date, end=summary.end_date) }}" class="btn btn-secondary btn-sm" id="btn-export-csv" title="Exportar para arquivo CSV compatível com Excel">
+    <a href="{{ url_for('export_csv', year=selected_year, month=selected_month) }}" class="btn btn-secondary btn-sm" id="btn-export-csv" title="Exportar para arquivo CSV ({{ month_name }} de {{ selected_year }})">
       📄 Exportar CSV
     </a>
-    <a href="{{ url_for('export_excel', start=summary.start_date, end=summary.end_date) }}" class="btn btn-success btn-sm" id="btn-export-excel" title="Exportar planilha formatada em Excel (.xlsx)">
+    <a href="{{ url_for('export_excel', year=selected_year, month=selected_month) }}" class="btn btn-success btn-sm" id="btn-export-excel" title="Exportar planilha formatada em Excel (.xlsx) de {{ month_name }}">
       📊 Exportar Excel
     </a>
-    <a href="{{ url_for('export_pdf', start=summary.start_date, end=summary.end_date) }}" class="btn btn-primary btn-sm" id="btn-export-pdf" title="Exportar documento diagramado em PDF">
+    <a href="{{ url_for('export_pdf', year=selected_year, month=selected_month) }}" class="btn btn-primary btn-sm" id="btn-export-pdf" title="Exportar documento diagramado em PDF de {{ month_name }}">
       📑 Exportar PDF
     </a>
   </div>
 </div>
 
-<!-- Filtro de Período (Mês, Semana, Personalizado - Sem JavaScript) -->
-<div class="filter-bar">
-  <form method="GET" action="{{ url_for('reports_view') }}" class="filter-form">
-    <div class="filter-group" style="max-width: 190px;">
-      <label for="preset">Atalhos de Período</label>
-      <select id="preset" name="preset" class="form-control">
-        <option value="this_month" {% if preset == 'this_month' %}selected{% endif %}>Este Mês</option>
-        <option value="last_month" {% if preset == 'last_month' %}selected{% endif %}>Mês Passado</option>
-        <option value="this_week" {% if preset == 'this_week' %}selected{% endif %}>Esta Semana</option>
-        <option value="custom" {% if preset == 'custom' %}selected{% endif %}>Período Personalizado</option>
-      </select>
+<!-- Seletor de Mês e Ano (100% por Mês Selecionado - Sem Período Avulso) -->
+<div class="filter-bar" style="display: flex; flex-direction: column; gap: 0.85rem; background: #ffffff; padding: 1.25rem 1.5rem; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); border: 1px solid var(--border-color); margin-bottom: 1.75rem;">
+  
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+    <!-- Navegação Rápida Mês Anterior / Mês Atual / Próximo Mês -->
+    <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+      <a href="{{ url_for('reports_view', year=prev_year, month=prev_month) }}" class="btn btn-secondary btn-sm" id="btn-prev-month" title="Ir para {{ all_months[prev_month - 1][1] }} de {{ prev_year }}">
+        ◀ {{ all_months[prev_month - 1][1] }}
+      </a>
+      <a href="{{ url_for('reports_view', year=current_year, month=current_month) }}" class="btn {% if selected_year == current_year and selected_month == current_month %}btn-primary{% else %}btn-secondary{% endif %} btn-sm" id="btn-current-month" title="Voltar para o mês corrente">
+        Mês Atual
+      </a>
+      <a href="{{ url_for('reports_view', year=next_year, month=next_month) }}" class="btn btn-secondary btn-sm" id="btn-next-month" title="Ir para {{ all_months[next_month - 1][1] }} de {{ next_year }}">
+        {{ all_months[next_month - 1][1] }} ▶
+      </a>
     </div>
 
-    <div class="filter-group">
-      <label for="start_date">Data Início</label>
-      <input type="date" id="start_date" name="start_date" class="form-control" value="{{ summary.start_date }}">
-    </div>
+    <!-- Formulário Principal: Escolha Direta de Mês e Ano -->
+    <form method="GET" action="{{ url_for('reports_view') }}" class="filter-form" style="display: flex; align-items: flex-end; gap: 0.65rem; flex-wrap: wrap; margin: 0;">
+      <div class="filter-group" style="margin: 0; min-width: 155px;">
+        <label for="month-select" style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.25rem; color: var(--text-muted); display: block;">Mês do Relatório</label>
+        <select id="month-select" name="month" class="form-control" style="padding: 0.45rem 0.75rem; font-weight: 600;">
+          {% for m_num, m_label in all_months %}
+            <option value="{{ m_num }}" {% if m_num == selected_month %}selected{% endif %}>
+              {{ "%02d"|format(m_num) }} — {{ m_label }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
 
-    <div class="filter-group">
-      <label for="end_date">Data Fim</label>
-      <input type="date" id="end_date" name="end_date" class="form-control" value="{{ summary.end_date }}">
-    </div>
+      <div class="filter-group" style="margin: 0; min-width: 95px;">
+        <label for="year-select" style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.25rem; color: var(--text-muted); display: block;">Ano</label>
+        <select id="year-select" name="year" class="form-control" style="padding: 0.45rem 0.75rem; font-weight: 600;">
+          {% for y in available_years %}
+            <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
 
-    <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
-      <button type="submit" class="btn btn-primary" id="btn-apply-report-filter">
-        🔄 Atualizar Relatório
+      <button type="submit" class="btn btn-primary btn-sm" id="btn-apply-report-filter" style="padding: 0.5rem 1.15rem; font-weight: 700; height: 38px;">
+        Visualizar Mês
       </button>
-    </div>
-  </form>
+    </form>
+  </div>
+
+  <!-- Acesso Rápido a todos os 12 Meses do Ano Selecionado (1 Clique) -->
+  <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; padding-top: 0.75rem; border-top: 1px dashed #e2e8f0;">
+    <span style="font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-right: 0.35rem; text-transform: uppercase; letter-spacing: 0.04em;">Meses de {{ selected_year }}:</span>
+    {% for m_num, m_label in all_months %}
+      <a 
+        href="{{ url_for('reports_view', year=selected_year, month=m_num) }}" 
+        class="month-pill {% if m_num == selected_month %}month-pill-active{% endif %}"
+        id="pill-month-{{ m_num }}"
+        title="Ver relatório de {{ m_label }} de {{ selected_year }}"
+        style="padding: 0.28rem 0.65rem; font-size: 0.82rem; font-weight: {% if m_num == selected_month %}700{% else %}500{% endif %}; border-radius: 6px; text-decoration: none; transition: all 0.15s ease; {% if m_num == selected_month %}background: #1e3a8a; color: #ffffff; box-shadow: 0 1px 2px rgba(30,58,138,0.3);{% else %}background: #f1f5f9; color: #334155;{% endif %}"
+      >
+        {{ m_label[:3] }}
+      </a>
+    {% endfor %}
+  </div>
 </div>
 
-<!-- Alerta de Horas a Pagar no Período e Saldo Acumulado (Persiste entre meses) -->
+<!-- Alerta de Horas a Pagar no Mês Selecionado e Saldo Acumulado -->
 {% if cumulative_bank_mins < 0 or summary.total_balance_minutes < 0 %}
   <div class="debt-mini-notice" style="margin-bottom: 2rem;">
     <div class="debt-mini-notice-content">
@@ -64,7 +95,7 @@
           <strong>Banco de Horas em Débito:</strong> Total acumulado de <strong>{{ cumulative_bank_str }}</strong> a pagar/compensar.
         {% endif %}
         {% if summary.total_balance_minutes < 0 %}
-          <strong>Período Selecionado:</strong> Saldo devedor de <strong>{{ summary.total_balance_str }}</strong> ({{ summary.total_missing_str }} faltantes).
+          <strong>{{ month_name }} de {{ selected_year }}:</strong> Saldo devedor de <strong>{{ summary.total_balance_str }}</strong> ({{ summary.total_missing_str }} faltantes no mês).
         {% endif %}
       </span>
     </div>
@@ -206,8 +237,8 @@
 <!-- Tabela Detalhada -->
 <div class="table-card">
   <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); background: var(--bg-surface); display: flex; align-items: center; justify-content: space-between;">
-    <h3 style="font-size: 1.1rem; font-weight: 700;">Detalhamento Diário do Período</h3>
-    <span style="font-size: 0.85rem; color: var(--text-muted);">{{ summary.days|length }} registros encontrados</span>
+    <h3 style="font-size: 1.1rem; font-weight: 700;">Detalhamento Diário — {{ month_name }} de {{ selected_year }}</h3>
+    <span style="font-size: 0.85rem; color: var(--text-muted);">{{ summary.days|length }} dias (01/{{ "%02d"|format(selected_month) }} a {{ "%02d"|format(last_day) }}/{{ "%02d"|format(selected_month) }})</span>
   </div>
 
   <div class="table-responsive">
