@@ -82,14 +82,35 @@
                 </a>
               </td>
               <td>{{ r.first_in }}</td>
-              <td>{{ r.break_out }}</td>
-              <td>{{ r.break_in }}</td>
-              <td>{{ r.last_out }}</td>
+              <td>{{ '-' if r.break_out == 'Sem int.' else r.break_out }}</td>
+              <td>
+                {% if r.break_in == 'Sem int.' %}
+                  <span style="display: inline-block; font-size: 0.76rem; background: #f1f5f9; color: #64748b; padding: 2px 6px; border-radius: 4px;">Sem int.</span>
+                {% else %}
+                  {{ r.break_in }}
+                {% endif %}
+              </td>
+              <td>
+                {% if r.is_in_progress %}
+                  <span style="color: #d97706; font-weight: 600;">⏳ Em aberto</span>
+                {% else %}
+                  {{ r.last_out }}
+                {% endif %}
+              </td>
               <td><strong>{{ r.total_worked_str }}</strong></td>
               <td>
-                <span class="{% if '+' in r.balance_str %}text-positive{% elif '-' in r.balance_str %}text-negative{% endif %}" style="font-weight: 700;">
-                  {{ r.balance_str }}
-                </span>
+                {% if r.is_in_progress %}
+                  <span style="color: #d97706; font-weight: 700; font-size: 0.85rem;">⏳ Em aberto</span>
+                {% else %}
+                  <span class="{% if '+' in r.balance_str %}text-positive{% elif '-' in r.balance_str %}text-negative{% endif %}" style="font-weight: 700;">
+                    {{ r.balance_str }}
+                  </span>
+                {% endif %}
+                {% if r.overtime_paid and r.overtime_minutes > 0 %}
+                  <span style="display: block; font-size: 0.68rem; color: #15803d; font-weight: 700; background: #ecfdf5; border-radius: 3px; padding: 1px 3px; margin-top: 2px;">
+                    Extra Paga
+                  </span>
+                {% endif %}
               </td>
               <td>
                 {% if r.day_type == 'folga' %}
@@ -98,6 +119,8 @@
                   <span class="status-badge" style="background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a;">🟠 Feriado</span>
                 {% elif r.day_type == 'falta' %}
                   <span class="status-badge status-falta">🔴 Falta (A Pagar)</span>
+                {% elif r.is_in_progress or r.status == 'em_andamento' %}
+                  <span class="status-badge" style="background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a;">⏳ Em aberto</span>
                 {% elif r.status == 'incompleto' %}
                   <span class="status-badge status-incompleto">🟡 Incompleto</span>
                 {% elif r.status == 'registrado' %}

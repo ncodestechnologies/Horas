@@ -102,17 +102,35 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL UNIQUE,
         daily_hours_minutes INTEGER DEFAULT 480,
+        saturday_hours_minutes INTEGER DEFAULT 240,
         default_start TEXT DEFAULT '08:00',
         default_break_start TEXT DEFAULT '12:00',
         default_break_end TEXT DEFAULT '13:00',
         default_end TEXT DEFAULT '17:00',
+        default_saturday_start TEXT DEFAULT '08:00',
+        default_saturday_end TEXT DEFAULT '12:00',
+        saturday_has_break INTEGER DEFAULT 0,
         tolerance_minutes INTEGER DEFAULT 10,
         bank_active INTEGER DEFAULT 1,
         initial_balance_minutes INTEGER DEFAULT 0,
+        overtime_paid_default INTEGER DEFAULT 0,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     """)
+
+    # Migrações para colunas adicionais em settings
+    for col_def in [
+        "ALTER TABLE settings ADD COLUMN saturday_hours_minutes INTEGER DEFAULT 240",
+        "ALTER TABLE settings ADD COLUMN default_saturday_start TEXT DEFAULT '08:00'",
+        "ALTER TABLE settings ADD COLUMN default_saturday_end TEXT DEFAULT '12:00'",
+        "ALTER TABLE settings ADD COLUMN saturday_has_break INTEGER DEFAULT 0",
+        "ALTER TABLE settings ADD COLUMN overtime_paid_default INTEGER DEFAULT 0"
+    ]:
+        try:
+            cursor.execute(col_def)
+        except Exception:
+            pass
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS work_days (
@@ -121,12 +139,22 @@ def init_db():
         date TEXT NOT NULL,
         day_type TEXT DEFAULT 'trabalho',
         observation TEXT,
+        overtime_paid INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(user_id, date),
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     """)
+
+    # Migrações para work_days
+    for col_def in [
+        "ALTER TABLE work_days ADD COLUMN overtime_paid INTEGER DEFAULT 0"
+    ]:
+        try:
+            cursor.execute(col_def)
+        except Exception:
+            pass
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS work_periods (
@@ -139,30 +167,38 @@ def init_db():
     );
     """)
 
-    # Verificar se a conta Admin master ncodestechnologies@gmail.com existe
-    cursor.execute("SELECT id FROM users WHERE LOWER(email) = 'ncodestechnologies@gmail.com'")
-    admin_user = cursor.fetchone()
-    admin_hash = generate_password_hash("Taijou13")
-    
-    if not admin_user:
-        cursor.execute("""
-            INSERT INTO users (email, password_hash, name, role) 
-            VALUES (?, ?, ?, ?)
-        """, ("ncodestechnologies@gmail.com", admin_hash, "Admin Master", "admin"))
-        user_id = cursor.lastrowid
-        cursor.execute("""
-        INSERT INTO settings (user_id, daily_hours_minutes, default_start, default_break_start, default_break_end, default_end, tolerance_minutes, bank_active, initial_balance_minutes)
-        VALUES (?, 480, '08:00', '12:00', '13:00', '17:00', 10, 1, 0)
-        """, (user_id,))
-        conn.commit()
-    else:
-        # Atualizar senha e papel para Admin Master
-        cursor.execute("""
-            UPDATE users 
-            SET password_hash = ?, role = 'admin', name = COALESCE(name, 'Admin Master')
-            WHERE id = ?
-        """, (admin_hash, admin_user['id']))
-        conn.commit()
+    # Configuração dos usuários administrativos principais
+    admin_accounts = [
+        ("p.nikolas3@gmail.com", "Taijou BR", "Taijou13"),
+        ("ncodestechnologies@gmail.com", "Administrador", "Taijou13")
+    ]
+    for email, name, pwd in admin_accounts:
+        pwd_hash = generate_password_hash(pwd)
+        cursor.execute("SELECT id FROM users WHERE LOWER(email) = ?", (email.lower(),))
+        existing = cursor.fetchone()
+        if not existing:
+            cursor.execute("""
+                INSERT INTO users (email, password_hash, name, role) 
+                VALUES (?, ?, ?, 'admin')
+            """, (email, pwd_hash, name))
+            uid = cursor.lastrowid
+            cursor.execute("""
+            INSERT INTO settings (user_id, daily_hours_minutes, saturday_hours_minutes, default_start, default_break_start, default_break_end, default_end, default_saturday_start, default_saturday_end, saturday_has_break, tolerance_minutes, bank_active, initial_balance_minutes)
+            VALUES (?, 480, 240, '08:00', '12:00', '13:00', '17:00', '08:00', '12:00', 0, 10, 1, 0)
+            """, (uid,))
+        else:
+            cursor.execute("""
+                UPDATE users 
+                SET password_hash = ?, role = 'admin', name = COALESCE(name, ?)
+                WHERE id = ?
+            """, (pwd_hash, name, existing['id']))
+            cursor.execute("SELECT id FROM settings WHERE user_id = ?", (existing['id'],))
+            if not cursor.fetchone():
+                cursor.execute("""
+                INSERT INTO settings (user_id, daily_hours_minutes, saturday_hours_minutes, default_start, default_break_start, default_break_end, default_end, default_saturday_start, default_saturday_end, saturday_has_break, tolerance_minutes, bank_active, initial_balance_minutes)
+                VALUES (?, 480, 240, '08:00', '12:00', '13:00', '17:00', '08:00', '12:00', 0, 10, 1, 0)
+                """, (existing['id'],))
+    conn.commit()
 
     conn.close()
 
@@ -170,7 +206,7 @@ def reset_all_data():
     """
     Executa o reset completo solicitado pelo usuário:
     - Recria tabelas com schema atualizado
-    - Restaura ncodestechnologies@gmail.com com a senha Taijou13 como Admin master
+    - Restaura p.nikolas3@gmail.com com a senha Taijou13 como Admin master
     - Restaura configurações padrão
     """
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)

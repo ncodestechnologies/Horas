@@ -30,6 +30,10 @@
           value="{{ form_data.date }}"
           {% if is_edit %}readonly style="background-color: var(--bg-subtle);"{% endif %}
         >
+        <div id="saturday-badge" style="{% if not form_data.is_saturday %}display: none;{% endif %} margin-top: 0.5rem; padding: 0.45rem 0.75rem; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; font-size: 0.84rem; color: #1e40af; display: flex; align-items: center; gap: 0.5rem;">
+          <span>📅</span>
+          <span><strong>Sábado Selecionado:</strong> Meta de {{ default_settings.saturday_hours_str or '04:00' }} e jornada contínua (sem necessidade de intervalo).</span>
+        </div>
       </div>
 
       <div class="form-group">
@@ -62,90 +66,167 @@
 
     <!-- Seção de Períodos de Trabalho (Visível apenas quando for dia de trabalho) -->
     <div id="periods-section">
-      <div style="margin: 1.5rem 0 1rem; border-top: 1px solid var(--border-color); padding-top: 1.25rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;">
+      <div style="margin: 1.25rem 0 1rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;">
         <div>
-          <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 0.25rem;">Períodos de Trabalho</h3>
+          <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 0.25rem;">Períodos de Horário</h3>
           <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0;">
-            Os campos iniciam zerados. Preencha apenas os turnos trabalhados ou use o atalho abaixo.
+            Preencha na hora do acontecimento ou manualmente. Você pode salvar a entrada agora e preencher a saída mais tarde.
           </p>
         </div>
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-          <button type="button" id="btn-fill-defaults" class="btn btn-secondary btn-sm" style="font-size: 0.82rem;">
-            ⚡ Preencher Padrão ({{ default_settings.default_start or '08:00' }} - {{ default_settings.default_end or '17:00' }})
-          </button>
+        <div>
           <button type="button" id="btn-clear-periods" class="btn btn-secondary btn-sm" style="font-size: 0.82rem;">
-            🧹 Limpar Campos
+            🧹 Limpar Horários
           </button>
         </div>
       </div>
 
+      <!-- Painel de Ação Rápida em Tempo Real -->
+      <div id="realtime-punch-card" style="margin-bottom: 1.25rem; padding: 1.1rem 1.25rem; border-radius: var(--radius-md); background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%); border: 1.5px solid #bfdbfe;">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+              <span style="font-size: 1.15rem;">⏱️</span>
+              <strong style="font-size: 0.95rem; color: #1e3a8a;">Registro na Hora do Acontecimento</strong>
+              <span id="live-clock-badge" style="font-family: monospace; font-size: 0.85rem; background: #ffffff; padding: 2px 8px; border-radius: 4px; border: 1px solid #cbd5e1; font-weight: 700; color: #0f172a;">--:--:--</span>
+            </div>
+            <p style="font-size: 0.83rem; color: #475569; margin: 0;">
+              Preencha na hora exata do fato e clique em Salvar. Os dados ficam gravados e o dia continuará em andamento.
+            </p>
+          </div>
+          <div>
+            <button type="button" id="btn-quick-punch" class="btn btn-primary btn-sm" style="font-weight: 700; display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1rem; box-shadow: var(--shadow-sm);">
+              <span id="quick-punch-icon">⚡</span>
+              <span id="quick-punch-text">Bater Ponto Agora</span>
+            </button>
+          </div>
+        </div>
+        <div id="punch-status-indicator" style="margin-top: 0.6rem; font-size: 0.82rem; color: #15803d; font-weight: 600; display: none;">
+          ✓ Horário registrado no campo! Lembre-se de clicar em <strong>Salvar Registro</strong> abaixo para confirmar.
+        </div>
+      </div>
+
       <!-- Período 1 -->
-      <div class="period-box">
+      <div class="period-box" id="period-1-box">
         <div class="period-header">
-          <span>Período 1 (Manhã / Primeiro Turno)</span>
-          <span style="font-size: 0.8rem; color: var(--text-muted);">Principal</span>
+          <span id="p1-header-title">Período 1 (Principal / Turno Único)</span>
+          <span id="p1-header-badge" style="font-size: 0.8rem; color: var(--text-muted);">Entrada / Saída</span>
         </div>
         <div class="form-row">
           <div class="form-group" style="margin-bottom: 0;">
-            <label for="p1_start" class="form-label">Horário de Entrada</label>
-            <input type="time" id="p1_start" name="p1_start" class="form-control period-input" value="{{ form_data.p1_start }}">
+            <label for="p1_start" class="form-label" id="p1_start_label">Horário de Entrada</label>
+            <div style="display: flex; gap: 0.4rem;">
+              <input type="time" id="p1_start" name="p1_start" class="form-control period-input" value="{{ form_data.p1_start }}">
+              <button type="button" class="btn btn-secondary btn-set-now" data-target="p1_start" title="Preencher com o horário de agora" style="font-size: 0.78rem; padding: 0 0.65rem; white-space: nowrap; font-weight: 600;">
+                🕒 Agora
+              </button>
+            </div>
           </div>
           <div class="form-group" style="margin-bottom: 0;">
-            <label for="p1_end" class="form-label">Horário de Saída (para intervalo)</label>
-            <input type="time" id="p1_end" name="p1_end" class="form-control period-input" value="{{ form_data.p1_end }}">
+            <label for="p1_end" class="form-label" id="p1_end_label">Horário de Saída (ou Almoço)</label>
+            <div style="display: flex; gap: 0.4rem;">
+              <input type="time" id="p1_end" name="p1_end" class="form-control period-input" value="{{ form_data.p1_end }}">
+              <button type="button" class="btn btn-secondary btn-set-now" data-target="p1_end" title="Preencher com o horário de agora" style="font-size: 0.78rem; padding: 0 0.65rem; white-space: nowrap; font-weight: 600;">
+                🕒 Agora
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       <!-- Período 2 -->
-      <div class="period-box">
+      <div class="period-box" id="period-2-box">
         <div class="period-header">
-          <span>Período 2 (Tarde / Retorno do Intervalo)</span>
+          <span>Período 2 (Opcional — após intervalo)</span>
           <span style="font-size: 0.8rem; color: var(--text-muted);">Segundo Turno</span>
         </div>
         <div class="form-row">
           <div class="form-group" style="margin-bottom: 0;">
-            <label for="p2_start" class="form-label">Horário de Retorno</label>
-            <input type="time" id="p2_start" name="p2_start" class="form-control period-input" value="{{ form_data.p2_start }}">
+            <label for="p2_start" class="form-label">Retorno do Intervalo (Entrada)</label>
+            <div style="display: flex; gap: 0.4rem;">
+              <input type="time" id="p2_start" name="p2_start" class="form-control period-input" value="{{ form_data.p2_start }}">
+              <button type="button" class="btn btn-secondary btn-set-now" data-target="p2_start" title="Preencher com o horário de agora" style="font-size: 0.78rem; padding: 0 0.65rem; white-space: nowrap; font-weight: 600;">
+                🕒 Agora
+              </button>
+            </div>
           </div>
           <div class="form-group" style="margin-bottom: 0;">
             <label for="p2_end" class="form-label">Horário de Saída Final</label>
-            <input type="time" id="p2_end" name="p2_end" class="form-control period-input" value="{{ form_data.p2_end }}">
+            <div style="display: flex; gap: 0.4rem;">
+              <input type="time" id="p2_end" name="p2_end" class="form-control period-input" value="{{ form_data.p2_end }}">
+              <button type="button" class="btn btn-secondary btn-set-now" data-target="p2_end" title="Preencher com o horário de agora" style="font-size: 0.78rem; padding: 0 0.65rem; white-space: nowrap; font-weight: 600;">
+                🕒 Agora
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Período 3 (Opcional - Múltiplos períodos / Plantão) -->
-      <div class="period-box">
+      <!-- Período 3 (Opcional) -->
+      <div class="period-box" id="period-3-box">
         <div class="period-header">
-          <span>Período 3 (Opcional — Noite / Plantão / Período Extra)</span>
+          <span>Período 3 (Opcional — Período Extra)</span>
         </div>
         <div class="form-row">
           <div class="form-group" style="margin-bottom: 0;">
             <label for="p3_start" class="form-label">Horário de Entrada</label>
-            <input type="time" id="p3_start" name="p3_start" class="form-control period-input" value="{{ form_data.p3_start }}">
+            <div style="display: flex; gap: 0.4rem;">
+              <input type="time" id="p3_start" name="p3_start" class="form-control period-input" value="{{ form_data.p3_start }}">
+              <button type="button" class="btn btn-secondary btn-set-now" data-target="p3_start" title="Preencher com o horário de agora" style="font-size: 0.78rem; padding: 0 0.65rem; white-space: nowrap; font-weight: 600;">
+                🕒 Agora
+              </button>
+            </div>
           </div>
           <div class="form-group" style="margin-bottom: 0;">
             <label for="p3_end" class="form-label">Horário de Saída</label>
-            <input type="time" id="p3_end" name="p3_end" class="form-control period-input" value="{{ form_data.p3_end }}">
+            <div style="display: flex; gap: 0.4rem;">
+              <input type="time" id="p3_end" name="p3_end" class="form-control period-input" value="{{ form_data.p3_end }}">
+              <button type="button" class="btn btn-secondary btn-set-now" data-target="p3_end" title="Preencher com o horário de agora" style="font-size: 0.78rem; padding: 0 0.65rem; white-space: nowrap; font-weight: 600;">
+                🕒 Agora
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       <!-- Período 4 (Opcional) -->
-      <div class="period-box">
+      <div class="period-box" id="period-4-box">
         <div class="period-header">
           <span>Período 4 (Opcional — Turno Diferenciado)</span>
         </div>
         <div class="form-row">
           <div class="form-group" style="margin-bottom: 0;">
             <label for="p4_start" class="form-label">Horário de Entrada</label>
-            <input type="time" id="p4_start" name="p4_start" class="form-control period-input" value="{{ form_data.p4_start }}">
+            <div style="display: flex; gap: 0.4rem;">
+              <input type="time" id="p4_start" name="p4_start" class="form-control period-input" value="{{ form_data.p4_start }}">
+              <button type="button" class="btn btn-secondary btn-set-now" data-target="p4_start" title="Preencher com o horário de agora" style="font-size: 0.78rem; padding: 0 0.65rem; white-space: nowrap; font-weight: 600;">
+                🕒 Agora
+              </button>
+            </div>
           </div>
           <div class="form-group" style="margin-bottom: 0;">
             <label for="p4_end" class="form-label">Horário de Saída</label>
-            <input type="time" id="p4_end" name="p4_end" class="form-control period-input" value="{{ form_data.p4_end }}">
+            <div style="display: flex; gap: 0.4rem;">
+              <input type="time" id="p4_end" name="p4_end" class="form-control period-input" value="{{ form_data.p4_end }}">
+              <button type="button" class="btn btn-secondary btn-set-now" data-target="p4_end" title="Preencher com o horário de agora" style="font-size: 0.78rem; padding: 0 0.65rem; white-space: nowrap; font-weight: 600;">
+                🕒 Agora
+              </button>
+            </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Tratamento de Hora Extra: Paga em Folha vs Banco de Horas -->
+      <div id="overtime-paid-card" style="margin-top: 1.25rem; background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 8px; padding: 1rem 1.25rem;">
+        <div style="display: flex; align-items: flex-start; gap: 0.85rem;">
+          <input type="checkbox" id="overtime_paid" name="overtime_paid" value="1" {% if form_data.overtime_paid %}checked{% endif %} style="width: 1.25rem; height: 1.25rem; margin-top: 0.15rem; accent-color: #16a34a; cursor: pointer;">
+          <label for="overtime_paid" style="margin: 0; cursor: pointer; display: block; flex: 1;">
+            <span style="font-weight: 700; color: #166534; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem;">
+              💰 Hora Extra Paga em Folha (Não somar com saldo devedor/negativo)
+            </span>
+            <span style="font-size: 0.84rem; color: #15803d; display: block; margin-top: 0.25rem; line-height: 1.45;">
+              Marque esta opção se as horas extras realizadas neste dia foram ou serão <strong>pagas em dinheiro na folha de pagamento</strong>. Dessa forma, elas <strong>NÃO abaterão as horas negativas acumuladas</strong> do seu banco de horas, garantindo que suas dívidas ou débitos a pagar continuem íntegros.
+            </span>
+          </label>
         </div>
       </div>
     </div>
@@ -169,6 +250,8 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+  const dateInput = document.getElementById('date');
+  const saturdayBadge = document.getElementById('saturday-badge');
   const dayTypeSelect = document.getElementById('day_type');
   const periodsSection = document.getElementById('periods-section');
   const nonWorkNotice = document.getElementById('non-work-notice');
@@ -177,10 +260,21 @@ document.addEventListener('DOMContentLoaded', function() {
   const nonWorkDesc = document.getElementById('non-work-desc');
   const periodInputs = document.querySelectorAll('.period-input');
 
-  const defaultStart = "{{ default_settings.default_start or '08:00' }}";
-  const defaultBreakStart = "{{ default_settings.default_break_start or '12:00' }}";
-  const defaultBreakEnd = "{{ default_settings.default_break_end or '13:00' }}";
-  const defaultEnd = "{{ default_settings.default_end or '17:00' }}";
+  function checkIsSaturday(dateStr) {
+    if (!dateStr) return false;
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return false;
+    const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    return d.getDay() === 6; // 6 is Saturday
+  }
+
+  function handleDateChange() {
+    if (!dateInput) return;
+    const isSat = checkIsSaturday(dateInput.value);
+    if (saturdayBadge) {
+      saturdayBadge.style.display = isSat ? 'flex' : 'none';
+    }
+  }
 
   function updateDayTypeView() {
     const selected = dayTypeSelect.value;
@@ -238,31 +332,136 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Atalho para preencher horários padrão
-  const btnFillDefaults = document.getElementById('btn-fill-defaults');
-  if (btnFillDefaults) {
-    btnFillDefaults.addEventListener('click', function() {
-      document.getElementById('p1_start').value = defaultStart;
-      document.getElementById('p1_end').value = defaultBreakStart;
-      document.getElementById('p2_start').value = defaultBreakEnd;
-      document.getElementById('p2_end').value = defaultEnd;
-      document.getElementById('p3_start').value = '';
-      document.getElementById('p3_end').value = '';
-      document.getElementById('p4_start').value = '';
-      document.getElementById('p4_end').value = '';
-    });
-  }
-
   // Atalho para limpar horários (zerar)
   const btnClearPeriods = document.getElementById('btn-clear-periods');
   if (btnClearPeriods) {
     btnClearPeriods.addEventListener('click', function() {
       periodInputs.forEach(input => input.value = '');
+      updateQuickPunchButton();
     });
   }
 
+  // Relógio em tempo real e preenchimento na hora do acontecimento
+  const liveClockBadge = document.getElementById('live-clock-badge');
+  const btnQuickPunch = document.getElementById('btn-quick-punch');
+  const quickPunchIcon = document.getElementById('quick-punch-icon');
+  const quickPunchText = document.getElementById('quick-punch-text');
+  const punchStatusIndicator = document.getElementById('punch-status-indicator');
+
+  function getCurrentTime() {
+    const now = new Date();
+    const h = String(now.getHours()).padStart(2, '0');
+    const m = String(now.getMinutes()).padStart(2, '0');
+    const s = String(now.getSeconds()).padStart(2, '0');
+    return { hhmm: `${h}:${m}`, hhmmss: `${h}:${m}:${s}` };
+  }
+
+  function updateLiveClock() {
+    const { hhmmss } = getCurrentTime();
+    if (liveClockBadge) {
+      liveClockBadge.textContent = hhmmss;
+    }
+  }
+
+  setInterval(updateLiveClock, 1000);
+  updateLiveClock();
+
+  function getNextPunchTarget() {
+    const p1s = document.getElementById('p1_start')?.value;
+    const p1e = document.getElementById('p1_end')?.value;
+    const p2s = document.getElementById('p2_start')?.value;
+    const p2e = document.getElementById('p2_end')?.value;
+    const p3s = document.getElementById('p3_start')?.value;
+    const p3e = document.getElementById('p3_end')?.value;
+    const p4s = document.getElementById('p4_start')?.value;
+    const p4e = document.getElementById('p4_end')?.value;
+
+    if (!p1s) return { id: 'p1_start', icon: '🟢', label: 'Bater Entrada Agora' };
+    if (!p1e) return { id: 'p1_end', icon: '☕', label: 'Bater Saída/Intervalo Agora' };
+    if (!p2s) return { id: 'p2_start', icon: '🔙', label: 'Bater Retorno Intervalo Agora' };
+    if (!p2e) return { id: 'p2_end', icon: '🏁', label: 'Bater Saída Final Agora' };
+    if (!p3s) return { id: 'p3_start', icon: '➕', label: 'Bater Início Hora Extra' };
+    if (!p3e) return { id: 'p3_end', icon: '🏁', label: 'Bater Término Hora Extra' };
+    if (!p4s) return { id: 'p4_start', icon: '➕', label: 'Bater Período 4' };
+    if (!p4e) return { id: 'p4_end', icon: '🏁', label: 'Bater Saída Período 4' };
+    return { id: null, icon: '✅', label: 'Todos os Horários Preenchidos' };
+  }
+
+  function updateQuickPunchButton() {
+    if (!btnQuickPunch) return;
+    const { hhmm } = getCurrentTime();
+    const next = getNextPunchTarget();
+    if (quickPunchIcon) quickPunchIcon.textContent = next.icon;
+    if (quickPunchText) {
+      if (next.id) {
+        quickPunchText.textContent = `${next.label} (${hhmm})`;
+        btnQuickPunch.disabled = false;
+        btnQuickPunch.classList.remove('btn-secondary');
+        btnQuickPunch.classList.add('btn-primary');
+      } else {
+        quickPunchText.textContent = `${next.label}`;
+        btnQuickPunch.disabled = true;
+        btnQuickPunch.classList.remove('btn-primary');
+        btnQuickPunch.classList.add('btn-secondary');
+      }
+    }
+  }
+
+  // Botões individuais "🕒 Agora"
+  document.querySelectorAll('.btn-set-now').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const targetId = this.getAttribute('data-target');
+      const input = document.getElementById(targetId);
+      if (input) {
+        const { hhmm } = getCurrentTime();
+        input.value = hhmm;
+        input.focus();
+        input.style.borderColor = '#16a34a';
+        setTimeout(() => { input.style.borderColor = ''; }, 1200);
+        if (punchStatusIndicator) {
+          punchStatusIndicator.style.display = 'block';
+        }
+        updateQuickPunchButton();
+      }
+    });
+  });
+
+  if (btnQuickPunch) {
+    btnQuickPunch.addEventListener('click', function() {
+      const next = getNextPunchTarget();
+      if (next.id) {
+        const input = document.getElementById(next.id);
+        if (input) {
+          const { hhmm } = getCurrentTime();
+          input.value = hhmm;
+          input.focus();
+          input.style.borderColor = '#16a34a';
+          setTimeout(() => { input.style.borderColor = ''; }, 1500);
+          if (punchStatusIndicator) {
+            punchStatusIndicator.style.display = 'block';
+            punchStatusIndicator.innerHTML = `✓ <strong>${input.previousElementSibling?.textContent || 'Horário'}</strong> preenchido com <strong>${hhmm}</strong>! Clique em <strong>Salvar Registro</strong> abaixo para confirmar.`;
+          }
+          updateQuickPunchButton();
+        }
+      }
+    });
+  }
+
+  periodInputs.forEach(input => {
+    input.addEventListener('change', updateQuickPunchButton);
+    input.addEventListener('input', updateQuickPunchButton);
+  });
+
+  if (dateInput) {
+    dateInput.addEventListener('change', handleDateChange);
+  }
+
   dayTypeSelect.addEventListener('change', updateDayTypeView);
+
+  // Inicialização no carregamento
   updateDayTypeView();
+  handleDateChange();
+  updateQuickPunchButton();
 });
 </script>
 {% endblock %}

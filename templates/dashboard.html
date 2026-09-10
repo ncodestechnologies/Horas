@@ -14,32 +14,58 @@
   </a>
 </header>
 
-<!-- Alerta Explícito de Saldo Devedor / Horas a Pagar (Persiste Mesmo com Virada de Mês) -->
+<!-- Pequeno Aviso Discreto de Débito de Horas -->
 {% if cumulative_bank_mins < 0 or month_summary.total_balance_minutes < 0 %}
-  <div class="debt-warning-banner" id="banner-debt-alert">
-    <div class="debt-warning-icon">⚠️</div>
-    <div class="debt-warning-text">
-      <strong>Débito no Banco de Horas — Horas a Pagar</strong>
+  <div class="debt-mini-notice" id="banner-debt-alert">
+    <div class="debt-mini-notice-content">
+      <span class="debt-mini-notice-icon">⚠️</span>
       <span>
         {% if cumulative_bank_mins < 0 %}
-          Você possui um débito acumulado de <strong>{{ cumulative_bank_str }}</strong> no seu Banco de Horas. Mesmo após a virada de mês, este saldo permanece acumulado até você pagar/compensar.
+          <strong>Banco de Horas:</strong> Débito em aberto de <strong>{{ cumulative_bank_str }}</strong>.
         {% else %}
-          Seu saldo deste mês ({{ current_month_display }}) está negativo em <strong>{{ month_summary.total_balance_str }}</strong> ({{ month_summary.total_missing_str }} faltantes).
+          <strong>Mês Atual ({{ current_month_display }}):</strong> Saldo negativo de <strong>{{ month_summary.total_balance_str }}</strong>.
         {% endif %}
       </span>
     </div>
-    <a href="{{ url_for('register_time') }}" class="btn btn-danger btn-sm" style="white-space: nowrap;">
-      + Compensar Débito
-    </a>
+    <div class="debt-mini-notice-actions">
+      <a href="{{ url_for('reports_view') }}" class="debt-mini-link">Ver observações no relatório →</a>
+      <a href="{{ url_for('register_time') }}" class="btn btn-outline-danger btn-sm" style="padding: 0.25rem 0.65rem; font-size: 0.78rem;">
+        + Compensar
+      </a>
+    </div>
   </div>
 {% endif %}
 
 <!-- Seção HOJE -->
 <section class="dashboard-section">
-  <div class="section-title">
-    <span>📅</span>
-    <span>Hoje — {{ today_display }}</span>
+  <div class="section-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <span>📅</span>
+      <span>Hoje — {{ today_display }}</span>
+    </div>
+    {% if today_metrics.is_in_progress %}
+      <span style="font-size: 0.8rem; background: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-weight: 700; padding: 0.25rem 0.65rem; border-radius: 6px;">
+        ⏳ Ponto em Aberto
+      </span>
+    {% endif %}
   </div>
+
+  {% if today_metrics.is_in_progress %}
+    <div style="background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%); border: 1.5px solid #93c5fd; border-radius: 12px; padding: 0.9rem 1.25rem; margin-bottom: 1.25rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;">
+      <div style="display: flex; align-items: center; gap: 0.65rem;">
+        <span style="font-size: 1.35rem;">⏱️</span>
+        <div>
+          <strong style="color: #1e40af; font-size: 0.95rem;">Ponto de Hoje em Andamento</strong>
+          <span style="color: #1d4ed8; font-size: 0.84rem; display: block;">
+            Entrada às <strong>{{ today_metrics.first_in }}</strong>. Registre a saída ou o próximo turno quando ocorrer.
+          </span>
+        </div>
+      </div>
+      <a href="{{ url_for('register_time', date=today_str) }}" class="btn btn-primary btn-sm" style="font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem;">
+        ⚡ Registrar Próximo Ponto
+      </a>
+    </div>
+  {% endif %}
 
   <div class="stats-grid">
     <div class="stat-card" id="card-today-worked">
@@ -56,16 +82,38 @@
 
     <div class="stat-card" id="card-today-out">
       <div class="stat-label">Horário de Saída</div>
-      <div class="stat-value">{{ today_metrics.last_out }}</div>
-      <div class="stat-subtext">Último registro do dia</div>
+      <div class="stat-value">
+        {% if today_metrics.is_in_progress %}
+          <span style="font-size: 1.15rem; color: #d97706; font-weight: 700;">⏳ Em aberto</span>
+        {% else %}
+          {{ today_metrics.last_out }}
+        {% endif %}
+      </div>
+      <div class="stat-subtext">
+        {% if today_metrics.is_in_progress %}
+          Trabalho em curso
+        {% else %}
+          Último registro do dia
+        {% endif %}
+      </div>
     </div>
 
     <div class="stat-card" id="card-today-balance">
       <div class="stat-label">Saldo do Dia</div>
-      <div class="stat-value {% if '+' in today_metrics.balance_str %}text-positive{% elif '-' in today_metrics.balance_str %}text-negative{% else %}text-neutral{% endif %}">
-        {{ today_metrics.balance_str }}
+      <div class="stat-value {% if today_metrics.is_in_progress %}text-neutral{% elif '+' in today_metrics.balance_str %}text-positive{% elif '-' in today_metrics.balance_str %}text-negative{% else %}text-neutral{% endif %}">
+        {% if today_metrics.is_in_progress %}
+          <span style="font-size: 1.15rem; color: #d97706; font-weight: 700;">⏳ Em aberto</span>
+        {% else %}
+          {{ today_metrics.balance_str }}
+        {% endif %}
       </div>
-      <div class="stat-subtext">Meta diária: {{ today_metrics.expected_str }}</div>
+      <div class="stat-subtext">
+        {% if today_metrics.is_in_progress %}
+          Falta cumprir {{ today_metrics.missing_str }} para a meta
+        {% else %}
+          Meta diária: {{ today_metrics.expected_str }}
+        {% endif %}
+      </div>
     </div>
   </div>
 </section>
@@ -159,14 +207,35 @@
                   <strong>{{ d.date_fmt }}</strong>
                 </td>
                 <td>{{ d.first_in }}</td>
-                <td>{{ d.break_out }}</td>
-                <td>{{ d.break_in }}</td>
-                <td>{{ d.last_out }}</td>
+                <td>{{ '-' if d.break_out == 'Sem int.' else d.break_out }}</td>
+                <td>
+                  {% if d.break_in == 'Sem int.' %}
+                    <span style="display: inline-block; font-size: 0.76rem; background: #f1f5f9; color: #64748b; padding: 2px 6px; border-radius: 4px;">Sem int.</span>
+                  {% else %}
+                    {{ d.break_in }}
+                  {% endif %}
+                </td>
+                <td>
+                  {% if d.is_in_progress %}
+                    <span style="color: #d97706; font-weight: 600;">⏳ Em aberto</span>
+                  {% else %}
+                    {{ d.last_out }}
+                  {% endif %}
+                </td>
                 <td><strong>{{ d.total_worked_str }}</strong></td>
                 <td>
-                  <span class="{% if '+' in d.balance_str %}text-positive{% elif '-' in d.balance_str %}text-negative{% endif %}" style="font-weight: 700;">
-                    {{ d.balance_str }}
-                  </span>
+                  {% if d.is_in_progress %}
+                    <span style="color: #d97706; font-weight: 700; font-size: 0.85rem;">⏳ Em aberto</span>
+                  {% else %}
+                    <span class="{% if '+' in d.balance_str %}text-positive{% elif '-' in d.balance_str %}text-negative{% endif %}" style="font-weight: 700;">
+                      {{ d.balance_str }}
+                    </span>
+                  {% endif %}
+                  {% if d.overtime_paid and d.overtime_minutes > 0 %}
+                    <span style="display: block; font-size: 0.68rem; color: #15803d; font-weight: 700; background: #ecfdf5; border-radius: 3px; padding: 1px 3px; margin-top: 2px;">
+                      Extra Paga
+                    </span>
+                  {% endif %}
                 </td>
                 <td>
                   {% if d.day_type == 'folga' %}
@@ -175,6 +244,8 @@
                     <span class="status-badge" style="background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a;">🟠 Feriado</span>
                   {% elif d.day_type == 'falta' %}
                     <span class="status-badge status-falta">🔴 Falta (A Pagar)</span>
+                  {% elif d.is_in_progress or d.status == 'em_andamento' %}
+                    <span class="status-badge" style="background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a;">⏳ Em aberto</span>
                   {% elif d.status == 'incompleto' %}
                     <span class="status-badge status-incompleto">🟡 Incompleto</span>
                   {% elif d.status == 'registrado' %}

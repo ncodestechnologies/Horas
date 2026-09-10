@@ -1047,6 +1047,55 @@ body {
   line-height: 1.5;
 }
 
+/* Aviso Discreto de Débito */
+.debt-mini-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  padding: 0.65rem 1.1rem;
+  background-color: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: var(--radius-md);
+  margin-bottom: 1.5rem;
+  font-size: 0.875rem;
+  color: #9f1239;
+}
+
+.debt-mini-notice-content {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 1;
+  min-width: 250px;
+}
+
+.debt-mini-notice-icon {
+  font-size: 1.15rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.debt-mini-notice-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.debt-mini-link {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #be123c;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.15s ease;
+}
+
+.debt-mini-link:hover {
+  color: #881337;
+}
+
 .status-badge.status-falta {
   background-color: #fee2e2;
   color: #991b1b;

@@ -58,6 +58,37 @@
     </div>
   {% endif %}
 
+  {% if metrics.is_in_progress %}
+    <!-- Banner de Ponto em Andamento -->
+    <div style="background: #eff6ff; border: 1.5px solid #93c5fd; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.85rem;">
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <span style="font-size: 1.6rem;">⏱️</span>
+        <div>
+          <strong style="color: #1e40af; display: block; font-size: 0.98rem;">Jornada em Andamento (Ponto Parcial)</strong>
+          <span style="color: #1d4ed8; font-size: 0.86rem;">
+            Horário registrado na hora do acontecimento. O dia está em curso sem gerar débito falso no banco de horas.
+          </span>
+        </div>
+      </div>
+      <a href="{{ url_for('edit_time', day_id=day.id) }}" class="btn btn-primary btn-sm" style="font-weight: 700; white-space: nowrap; display: inline-flex; align-items: center; gap: 0.4rem;">
+        ⚡ Bater Próximo Ponto / Atualizar
+      </a>
+    </div>
+  {% endif %}
+
+  {% if metrics.overtime_paid and metrics.overtime_paid_minutes > 0 %}
+    <!-- Aviso de Hora Extra Paga em Folha -->
+    <div style="background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 8px; padding: 0.9rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.85rem;">
+      <span style="font-size: 1.5rem;">💰</span>
+      <div>
+        <strong style="color: #166534; display: block; font-size: 0.95rem;">Hora Extra Paga em Folha de Pagamento</strong>
+        <span style="color: #15803d; font-size: 0.85rem;">
+          Neste dia foram realizadas <strong>{{ metrics.overtime_paid_str }}</strong> de hora extra marcadas como <strong>pagas em folha</strong>. Elas <strong>não abatem o saldo devedor/negativo</strong> do banco de horas.
+        </span>
+      </div>
+    </div>
+  {% endif %}
+
   <!-- Cards de Métricas do Dia -->
   <div class="stats-grid" style="margin-bottom: 2rem;">
     <div class="stat-card">
@@ -75,7 +106,15 @@
     <div class="stat-card">
       <div class="stat-label">Horas Extras</div>
       <div class="stat-value text-positive">{{ metrics.overtime_str }}</div>
-      <div class="stat-subtext">Tempo trabalhado a mais</div>
+      <div class="stat-subtext">
+        {% if metrics.overtime_paid %}
+          <span style="display: inline-block; background: #ecfdf4; color: #166534; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; border: 1px solid #86efac; font-size: 0.76rem;">
+            💵 Paga em folha
+          </span>
+        {% else %}
+          Tempo trabalhado a mais
+        {% endif %}
+      </div>
     </div>
 
     <div class="stat-card">
@@ -86,23 +125,38 @@
 
     <div class="stat-card">
       <div class="stat-label">Saldo do Dia</div>
-      <div class="stat-value {% if '+' in metrics.balance_str %}text-positive{% elif '-' in metrics.balance_str %}text-negative{% else %}text-neutral{% endif %}">
-        {{ metrics.balance_str }}
+      <div class="stat-value {% if metrics.is_in_progress %}text-neutral{% elif '+' in metrics.balance_str %}text-positive{% elif '-' in metrics.balance_str %}text-negative{% else %}text-neutral{% endif %}">
+        {% if metrics.is_in_progress %}
+          <span style="font-size: 1.2rem; color: #d97706;">⏳ Em andamento</span>
+        {% else %}
+          {{ metrics.balance_str }}
+        {% endif %}
       </div>
-      <div class="stat-subtext">Diferença em relação à prevista</div>
+      <div class="stat-subtext">
+        {% if metrics.is_in_progress %}
+          Trabalho em curso (sem débito antecipado)
+        {% else %}
+          Diferença em relação à prevista
+        {% endif %}
+      </div>
     </div>
 
     <div class="stat-card">
       <div class="stat-label">Tempo de Intervalo</div>
-      <div class="stat-value">{{ metrics.break_str }}</div>
-      <div class="stat-subtext">Soma dos intervalos entre turnos</div>
+      <div class="stat-value">{% if metrics.periods_count == 1 %}Sem intervalo{% else %}{{ metrics.break_str }}{% endif %}</div>
+      <div class="stat-subtext">{% if metrics.periods_count == 1 %}Jornada contínua direta{% else %}Soma dos intervalos entre turnos{% endif %}</div>
     </div>
   </div>
 
   <!-- Tabela de Períodos Registrados -->
   <div class="table-card">
-    <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); background: var(--bg-surface);">
+    <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); background: var(--bg-surface); display: flex; justify-content: space-between; align-items: center;">
       <h3 style="font-size: 1.1rem; font-weight: 700;">Horários e Períodos Detalhados</h3>
+      {% if metrics.is_in_progress %}
+        <span style="background: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 0.8rem; font-weight: 700; padding: 0.25rem 0.6rem; border-radius: 6px;">
+          🕒 Ponto em Aberto
+        </span>
+      {% endif %}
     </div>
     
     <div class="table-responsive">
@@ -113,19 +167,43 @@
             <th>Horário de Entrada</th>
             <th>Horário de Saída</th>
             <th>Duração</th>
-            <th>Observação / Tipo</th>
+            <th>Observação / Status</th>
           </tr>
         </thead>
         <tbody>
           {% if periods %}
             {% for p in periods %}
-              <tr>
+              <tr {% if not p.end_time or p.is_open %}style="background: #fffbeb;"{% endif %}>
                 <td><strong>Turno {{ loop.index }}</strong></td>
                 <td>{{ p.start_time }}</td>
-                <td>{{ p.end_time }}</td>
-                <td><strong>{{ p.duration_str }}</strong></td>
                 <td>
-                  {% if loop.first %}Entrada Inicial{% elif loop.last %}Saída Final{% else %}Turno Intermediário{% endif %}
+                  {% if p.end_time %}
+                    {{ p.end_time }}
+                  {% else %}
+                    <span style="background: #fef3c7; color: #92400e; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px; border: 1px solid #fde68a; font-size: 0.82rem;">
+                      ⏳ Em aberto
+                    </span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if p.end_time %}
+                    <strong>{{ p.duration_str }}</strong>
+                  {% else %}
+                    <span style="color: #b45309; font-weight: 600;">Em andamento</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if not p.end_time or p.is_open %}
+                    <span style="color: #b45309; font-weight: 700;">🕒 Turno atual em curso</span>
+                  {% elif loop.first and loop.last %}
+                    Turno Único
+                  {% elif loop.first %}
+                    Entrada Inicial
+                  {% elif loop.last %}
+                    Saída Final
+                  {% else %}
+                    Turno Intermediário
+                  {% endif %}
                 </td>
               </tr>
             {% endfor %}

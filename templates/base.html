@@ -124,5 +124,30 @@
     </div>
   </div>
 
+  <script>
+    (function() {
+      // Captura e armazena auth_token para garantir funcionamento estável em iframes com bloqueio de cookies
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const tokenFromUrl = urlParams.get('auth_token');
+        if (tokenFromUrl) {
+          sessionStorage.setItem('horas_auth_token', tokenFromUrl);
+          localStorage.setItem('horas_auth_token', tokenFromUrl);
+        }
+        const activeToken = tokenFromUrl || sessionStorage.getItem('horas_auth_token') || localStorage.getItem('horas_auth_token');
+        if (activeToken) {
+          document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('a[href^="/"]').forEach(function(link) {
+              const href = link.getAttribute('href');
+              if (href && !href.startsWith('/logout') && !href.includes('auth_token=')) {
+                const sep = href.includes('?') ? '&' : '?';
+                link.setAttribute('href', href + sep + 'auth_token=' + encodeURIComponent(activeToken));
+              }
+            });
+          });
+        }
+      } catch (e) {}
+    })();
+  </script>
 </body>
 </html>

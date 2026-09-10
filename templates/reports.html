@@ -56,22 +56,23 @@
 
 <!-- Alerta de Horas a Pagar no Período e Saldo Acumulado (Persiste entre meses) -->
 {% if cumulative_bank_mins < 0 or summary.total_balance_minutes < 0 %}
-  <div class="debt-warning-banner" style="margin-bottom: 2rem;">
-    <div class="debt-warning-icon">⚠️</div>
-    <div class="debt-warning-text">
-      <strong>Débito de Horas Detectado — Horas a Pagar</strong>
+  <div class="debt-mini-notice" style="margin-bottom: 2rem;">
+    <div class="debt-mini-notice-content">
+      <span class="debt-mini-notice-icon">⚠️</span>
       <span>
-        {% if summary.total_balance_minutes < 0 %}
-          Saldo devedor no período do relatório: <strong>{{ summary.total_balance_str }}</strong> ({{ summary.total_missing_str }} horas faltantes).
-        {% endif %}
         {% if cumulative_bank_mins < 0 %}
-          Saldo acumulado total no Banco de Horas: <strong>{{ cumulative_bank_str }}</strong> a pagar (mesmo com a virada do mês, o débito continua ativo e deve ser pago através de compensação futura).
+          <strong>Banco de Horas em Débito:</strong> Total acumulado de <strong>{{ cumulative_bank_str }}</strong> a pagar/compensar.
+        {% endif %}
+        {% if summary.total_balance_minutes < 0 %}
+          <strong>Período Selecionado:</strong> Saldo devedor de <strong>{{ summary.total_balance_str }}</strong> ({{ summary.total_missing_str }} faltantes).
         {% endif %}
       </span>
     </div>
-    <a href="{{ url_for('register_time') }}" class="btn btn-danger btn-sm" style="white-space: nowrap;">
-      + Compensar Horas
-    </a>
+    <div class="debt-mini-notice-actions">
+      <a href="{{ url_for('register_time') }}" class="btn btn-outline-danger btn-sm" style="padding: 0.25rem 0.65rem; font-size: 0.78rem;">
+        + Compensar Horas
+      </a>
+    </div>
   </div>
 {% endif %}
 
@@ -92,7 +93,13 @@
   <div class="stat-card">
     <div class="stat-label">Horas Extras</div>
     <div class="stat-value text-positive">{{ summary.total_overtime_str }}</div>
-    <div class="stat-subtext">Excedente acumulado</div>
+    <div class="stat-subtext">
+      {% if summary.total_overtime_paid_minutes > 0 %}
+        <span style="color: #16a34a; font-weight: 700;">💵 {{ summary.total_overtime_paid_str }} pagas em folha</span>
+      {% else %}
+        Excedente acumulado
+      {% endif %}
+    </div>
   </div>
 
   <div class="stat-card">
@@ -135,6 +142,66 @@
     <div class="stat-subtext">Média por dia trabalhado</div>
   </div>
 </div>
+
+{% if bank_breakdown and bank_breakdown.debit_items %}
+<!-- Origem dos Débitos no Banco de Horas -->
+<div class="table-card" style="margin-bottom: 2rem; border-color: #fecdd3;">
+  <div style="padding: 1rem 1.4rem; border-bottom: 1px solid #fecdd3; background: #fff1f2; display: flex; align-items: center; justify-content: space-between;">
+    <div>
+      <h3 style="font-size: 1.05rem; font-weight: 700; color: #9f1239;">Detalhamento da Origem dos Débitos (Banco de Horas)</h3>
+      <p style="font-size: 0.82rem; color: #be123c; margin: 0.2rem 0 0;">Lista de todos os lançamentos que geraram saldo negativo acumulado a compensar</p>
+    </div>
+    <span class="status-badge" style="background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; font-weight: 700;">
+      {{ bank_breakdown.debit_items|length }} item(s) devedor(es)
+    </span>
+  </div>
+
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Origem do Débito</th>
+          <th>Trabalhado</th>
+          <th>Previsto</th>
+          <th>Impacto no Banco</th>
+          <th>Detalhamento</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in bank_breakdown.debit_items %}
+          <tr>
+            <td>
+              {% if item.date != '-' %}
+                <a href="{{ url_for('day_detail_view', date_str=item.date) }}" style="font-weight: 700; color: var(--primary); text-decoration: none;">
+                  {{ item.formatted_date }}
+                </a>
+              {% else %}
+                <span style="font-weight: 600; color: var(--text-muted);">{{ item.formatted_date }}</span>
+              {% endif %}
+            </td>
+            <td>
+              <span class="status-badge {% if 'Falta' in item.type_label %}status-falta{% else %}status-incompleto{% endif %}">
+                {{ item.type_label }}
+              </span>
+            </td>
+            <td>{{ item.worked_str }}</td>
+            <td>{{ item.expected_str }}</td>
+            <td>
+              <span class="text-negative" style="font-weight: 700;">
+                {{ item.balance_str }}
+              </span>
+            </td>
+            <td style="font-size: 0.85rem; color: var(--text-muted);">
+              {{ item.description }}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
 <!-- Tabela Detalhada -->
 <div class="table-card">
@@ -185,15 +252,47 @@
               <td>
                 {% if d.periods|length > 1 %}{{ d.periods[1].start_time }}{% else %}—{% endif %}
               </td>
-              <td>{{ d.last_out }}</td>
+              <td>
+                {% if d.is_in_progress %}
+                  <span style="color: #d97706; font-weight: 600;">⏳ Em aberto</span>
+                {% else %}
+                  {{ d.last_out }}
+                {% endif %}
+              </td>
               <td><strong>{{ d.total_worked_str }}</strong></td>
               <td>{{ d.expected_str }}</td>
-              <td class="text-positive">{{ d.overtime_str if d.overtime_minutes > 0 else '-' }}</td>
-              <td class="text-negative">{{ d.missing_str if d.missing_minutes > 0 else '-' }}</td>
+              <td class="text-positive">
+                {% if d.overtime_minutes > 0 %}
+                  {{ d.overtime_str }}
+                  {% if d.overtime_paid %}
+                    <span style="display: block; font-size: 0.72rem; color: #15803d; font-weight: 700; background: #ecfdf5; border: 1px solid #bbf7d0; border-radius: 3px; padding: 1px 3px; margin-top: 2px;">
+                      Paga em folha
+                    </span>
+                  {% endif %}
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              <td class="text-negative">
+                {% if d.is_in_progress %}
+                  <span style="color: var(--text-muted);">—</span>
+                {% else %}
+                  {{ d.missing_str if d.missing_minutes > 0 else '-' }}
+                {% endif %}
+              </td>
               <td>
-                <span class="{% if '+' in d.balance_str %}text-positive{% elif '-' in d.balance_str %}text-negative{% endif %}" style="font-weight: 700;">
-                  {{ d.balance_str }}
-                </span>
+                {% if d.is_in_progress %}
+                  <span style="color: #d97706; font-weight: 700; font-size: 0.85rem;">⏳ Em aberto</span>
+                {% else %}
+                  <span class="{% if '+' in d.balance_str %}text-positive{% elif '-' in d.balance_str %}text-negative{% endif %}" style="font-weight: 700;">
+                    {{ d.balance_str }}
+                  </span>
+                {% endif %}
+                {% if d.overtime_paid and d.overtime_minutes > 0 %}
+                  <span style="display: block; font-size: 0.7rem; color: var(--text-muted);" title="Horas extras pagas não abatem débitos do banco de horas">
+                    (Sem abatimento)
+                  </span>
+                {% endif %}
               </td>
               <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                 {{ d.observation or '—' }}

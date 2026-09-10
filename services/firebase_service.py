@@ -127,7 +127,7 @@ def sync_settings_to_firebase(user_id, settings_data):
         logger.error(f"Erro ao sincronizar configurações no Firebase: {e}")
         return False
 
-def sync_work_day_to_firebase(user_id, date, day_type, observation, periods):
+def sync_work_day_to_firebase(user_id, date, day_type, observation, periods, overtime_paid=0):
     base_url, api_key = get_base_url()
     if not base_url:
         return False
@@ -144,6 +144,7 @@ def sync_work_day_to_firebase(user_id, date, day_type, observation, periods):
         'date': str(date),
         'dayType': str(day_type or 'trabalho'),
         'observation': str(observation or ''),
+        'overtimePaid': bool(overtime_paid),
         'periods': clean_periods,
         'updatedAt': datetime.utcnow().isoformat()
     }
@@ -224,7 +225,14 @@ def sync_all_local_to_firebase(user_id, conn):
         for d in days:
             cursor.execute("SELECT period_order, start_time, end_time FROM work_periods WHERE work_day_id = ? ORDER BY period_order ASC", (d['id'],))
             periods = [dict(p) for p in cursor.fetchall()]
-            sync_work_day_to_firebase(user_id, d['date'], d['day_type'], d['observation'], periods)
+            sync_work_day_to_firebase(
+                user_id,
+                d['date'],
+                d['day_type'],
+                d['observation'],
+                periods,
+                overtime_paid=d['overtime_paid'] if 'overtime_paid' in d.keys() else 0
+            )
             count += 1
 
         return True, f"{count} registros e configurações sincronizados com o Firestore!"
@@ -289,19 +297,21 @@ def pull_from_firebase(user_id, conn):
                 d_date = fields.get('date', {}).get('stringValue')
                 d_type = fields.get('dayType', {}).get('stringValue', 'trabalho')
                 d_obs = fields.get('observation', {}).get('stringValue', '')
+                d_ot_paid = 1 if fields.get('overtimePaid', {}).get('booleanValue', False) else 0
 
                 if not d_date:
                     continue
 
                 # Insert or update day
                 cursor.execute("""
-                    INSERT INTO work_days (user_id, date, day_type, observation, updated_at)
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    INSERT INTO work_days (user_id, date, day_type, observation, overtime_paid, updated_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(user_id, date) DO UPDATE SET
                         day_type = excluded.day_type,
                         observation = excluded.observation,
+                        overtime_paid = excluded.overtime_paid,
                         updated_at = CURRENT_TIMESTAMP
-                """, (user_id, d_date, d_type, d_obs))
+                """, (user_id, d_date, d_type, d_obs, d_ot_paid))
 
                 cursor.execute("SELECT id FROM work_days WHERE user_id = ? AND date = ?", (user_id, d_date))
                 day_row = cursor.fetchone()

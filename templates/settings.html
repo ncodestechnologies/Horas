@@ -75,6 +75,54 @@
       </div>
     </div>
 
+    <!-- Seção 1.5: Configuração Específica para Sábados (Sem Intervalo) -->
+    <div style="margin-bottom: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+        <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--primary-dark); margin: 0;">
+          📅 Parâmetros Específicos para Sábados
+        </h3>
+        <span class="badge" style="background-color: #dbeafe; color: #1e40af; font-size: 0.78rem;">Turno Único / Sem Intervalo</span>
+      </div>
+      <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+        Aos sábados, a jornada é contínua e não possui horário de intervalo. Defina aqui a carga prevista e os horários padrão para sábados.
+      </p>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="saturday_hours" class="form-label">Carga Prevista aos Sábados (HH:MM)</label>
+          <input 
+            type="text" 
+            id="saturday_hours" 
+            name="saturday_hours" 
+            class="form-control" 
+            pattern="[0-9]{1,2}:[0-9]{2}" 
+            placeholder="04:00"
+            value="{{ settings.saturday_hours_str or '04:00' }}"
+          >
+        </div>
+
+        <div class="form-group">
+          <label for="saturday_has_break" class="form-label">Exigir Horário de Intervalo no Sábado?</label>
+          <select id="saturday_has_break" name="saturday_has_break" class="form-control">
+            <option value="0" {% if settings.saturday_has_break == 0 or not settings.saturday_has_break %}selected{% endif %}>Não (Jornada contínua direta, sem intervalo)</option>
+            <option value="1" {% if settings.saturday_has_break == 1 %}selected{% endif %}>Sim (Possui horário de intervalo)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="default_saturday_start" class="form-label">Entrada Padrão de Sábado</label>
+          <input type="time" id="default_saturday_start" name="default_saturday_start" class="form-control" value="{{ settings.default_saturday_start or '08:00' }}">
+        </div>
+
+        <div class="form-group">
+          <label for="default_saturday_end" class="form-label">Saída Final Padrão de Sábado</label>
+          <input type="time" id="default_saturday_end" name="default_saturday_end" class="form-control" value="{{ settings.default_saturday_end or '12:00' }}">
+        </div>
+      </div>
+    </div>
+
     <!-- Seção 2: Banco de Horas -->
     <div style="margin-bottom: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
       <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--primary-dark); margin-bottom: 0.35rem;">
@@ -107,6 +155,23 @@
             Utilize sinal de '+' para crédito ou '-' para débito.
           </small>
         </div>
+      </div>
+
+      <div class="form-group" style="margin-top: 1rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem 1.15rem;">
+        <label for="overtime_paid_default" class="form-label" style="font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 0.4rem;">
+          💰 Tratamento Padrão de Horas Extras
+        </label>
+        <select id="overtime_paid_default" name="overtime_paid_default" class="form-control" style="font-weight: 600;">
+          <option value="0" {% if settings.overtime_paid_default != 1 %}selected{% endif %}>
+            Compensar no Banco de Horas (Padrão: Horas extras abatem débitos / saldo negativo)
+          </option>
+          <option value="1" {% if settings.overtime_paid_default == 1 %}selected{% endif %}>
+            Horas Extras Pagas em Folha (Não abater do banco / Não somar com horas negativas)
+          </option>
+        </select>
+        <small style="color: #64748b; font-size: 0.82rem; display: block; margin-top: 0.4rem; line-height: 1.45;">
+          Define o valor padrão pré-selecionado ao cadastrar novos dias de trabalho. Se definido como <em>"Pagas em Folha"</em>, o formulário de registro já virá com a opção marcada para que as horas extras sejam registradas como quitadas em folha, preservando o saldo devedor/negativo do banco de horas sem abatimento indesejado.
+        </small>
       </div>
     </div>
 

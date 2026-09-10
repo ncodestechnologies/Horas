@@ -16,24 +16,25 @@
     </a>
   </div>
 
-  <!-- Alerta Explícito de Horas a Pagar / Débito Acumulado (Persistente Mesmo que Vire o Mês) -->
+  <!-- Aviso Discreto de Débito de Horas -->
   {% if cumulative_bank_mins < 0 or month_summary.total_balance_minutes < 0 %}
-    <div class="debt-warning-banner" style="margin-bottom: 1.5rem;">
-      <div class="debt-warning-icon">⚠️</div>
-      <div class="debt-warning-text">
-        <strong>Débito de Horas — Atenção ao Saldo a Pagar</strong>
+    <div class="debt-mini-notice" style="margin-bottom: 1.5rem;">
+      <div class="debt-mini-notice-content">
+        <span class="debt-mini-notice-icon">⚠️</span>
         <span>
-          {% if month_summary.total_balance_minutes < 0 %}
-            Saldo devedor deste mês ({{ month_name }}/{{ year }}): <strong>{{ month_summary.total_balance_str }}</strong> ({{ month_summary.total_missing_str }} faltantes).
-          {% endif %}
           {% if cumulative_bank_mins < 0 %}
-            Saldo total acumulado no Banco de Horas: <strong>{{ cumulative_bank_str }}</strong> a pagar (mesmo com a virada do mês, o saldo negativo permanece ativo até ser compensado).
+            <strong>Banco de Horas:</strong> Débito acumulado de <strong>{{ cumulative_bank_str }}</strong> a compensar.
+          {% else %}
+            <strong>Mês de {{ month_name }}/{{ year }}:</strong> Saldo devedor de <strong>{{ month_summary.total_balance_str }}</strong> ({{ month_summary.total_missing_str }} faltantes).
           {% endif %}
         </span>
       </div>
-      <a href="{{ url_for('register_time') }}" class="btn btn-sm btn-danger" style="white-space: nowrap;">
-        + Compensar Horas
-      </a>
+      <div class="debt-mini-notice-actions">
+        <a href="{{ url_for('reports_view') }}" class="debt-mini-link">Ver no relatório →</a>
+        <a href="{{ url_for('register_time') }}" class="btn btn-outline-danger btn-sm" style="padding: 0.25rem 0.65rem; font-size: 0.78rem;">
+          + Compensar
+        </a>
+      </div>
     </div>
   {% endif %}
 
@@ -74,9 +75,15 @@
                 <span class="day-badge-type">{{ day.day_type|capitalize }}</span>
               {% elif day.has_record %}
                 <span class="day-hours-badge">{{ day.total_worked_str }}</span>
-                <span class="day-balance-badge {% if '+' in day.balance_str %}balance-positive{% elif '-' in day.balance_str %}balance-negative{% else %}balance-neutral{% endif %}">
-                  {{ day.balance_str }}
-                </span>
+                {% if day.is_in_progress %}
+                  <span class="day-balance-badge" style="background: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-weight: 700; font-size: 0.72rem;" title="Ponto em aberto no momento">
+                    ⏳ Aberto
+                  </span>
+                {% else %}
+                  <span class="day-balance-badge {% if '+' in day.balance_str %}balance-positive{% elif '-' in day.balance_str %}balance-negative{% else %}balance-neutral{% endif %}" {% if day.overtime_paid and day.overtime_minutes > 0 %}title="Hora extra paga em folha (não soma com horas negativas)" style="background: #ecfdf5; color: #166534; border: 1px solid #86efac; font-weight: 700;"{% endif %}>
+                    {% if day.overtime_paid and day.overtime_minutes > 0 %}💵 {{ day.overtime_str }}{% else %}{{ day.balance_str }}{% endif %}
+                  </span>
+                {% endif %}
               {% else %}
                 <span class="day-hours-badge day-hours-empty">—</span>
               {% endif %}

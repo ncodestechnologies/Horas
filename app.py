@@ -17,6 +17,29 @@ from flask import (
     flash, session, send_file, g, jsonify
 )
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
+from itsdangerous import URLSafeTimedSerializer
+
+class PartitionedCookieMiddleware:
+    """WSGI Middleware para garantir cookies compatíveis com iframes particionados no Chrome/Safari."""
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        def custom_start_response(status, headers, exc_info=None):
+            new_headers = []
+            for name, val in headers:
+                if name.lower() == 'set-cookie':
+                    parts = [p.strip().lower() for p in val.split(';')]
+                    if not any(p.startswith('samesite=') for p in parts):
+                        val += '; SameSite=None'
+                    if 'secure' not in parts:
+                        val += '; Secure'
+                    if 'partitioned' not in parts:
+                        val += '; Partitioned'
+                new_headers.append((name, val))
+            return start_response(status, new_headers, exc_info)
+        return self.wsgi_app(environ, custom_start_response)
 
 from database.db import get_db, init_db, reset_all_data
 from services.cpf_validator import validate_cpf, format_cpf, clean_cpf
@@ -31,6 +54,7 @@ from services.reports import (
     get_user_settings,
     generate_report_summary,
     get_cumulative_bank_balance,
+    get_bank_debit_breakdown,
     get_days_data_in_range
 )
 from services.exports import export_to_csv, export_to_excel, export_to_pdf
@@ -51,11 +75,46 @@ app = Flask(
     template_folder=os.path.join(BASE_DIR, 'templates'),
     static_folder=os.path.join(BASE_DIR, 'static')
 )
+app.wsgi_app = PartitionedCookieMiddleware(ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1))
+
 app.secret_key = os.environ.get('SECRET_KEY', 'controle-horas-secret-key-prod-2026')
 app.config['SESSION_COOKIE_SAMESITE'] = 'None'
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_NAME'] = 'horas_session'
+
+auth_serializer = URLSafeTimedSerializer(app.secret_key, salt='horas-auth-session')
+
+def generate_auth_token(user_id, email):
+    return auth_serializer.dumps({'uid': user_id, 'email': email})
+
+def verify_auth_token(token, max_age=86400 * 7):
+    try:
+        return auth_serializer.loads(token, max_age=max_age)
+    except Exception:
+        return None
+
+def restore_session_from_token():
+    token = request.args.get('auth_token') or request.headers.get('X-Auth-Token')
+    if token:
+        data = verify_auth_token(token)
+        if data and data.get('uid'):
+            try:
+                conn = get_db()
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM users WHERE id = ?", (data['uid'],))
+                user = cursor.fetchone()
+                conn.close()
+                if user:
+                    session['user_id'] = user['id']
+                    session['user_email'] = user['email']
+                    session['user_name'] = user['name'] or user['email'].split('@')[0]
+                    session['user_role'] = user['role'] or ('admin' if user['email'] in ('p.nikolas3@gmail.com', 'ncodestechnologies@gmail.com') else 'user')
+                    session['logged_out'] = False
+                    return True
+            except Exception:
+                pass
+    return False
 
 # Inicializa o banco de dados na inicialização do app (essencial para ambientes serverless como Vercel)
 try:
@@ -77,7 +136,7 @@ WEEKDAY_NAMES_PT = {
 def get_default_system_user():
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, email, name, role FROM users WHERE LOWER(email) = 'ncodestechnologies@gmail.com' LIMIT 1")
+    cursor.execute("SELECT id, email, name, role FROM users WHERE LOWER(email) = 'p.nikolas3@gmail.com' LIMIT 1")
     user = cursor.fetchone()
     if not user:
         cursor.execute("SELECT id, email, name, role FROM users ORDER BY id ASC LIMIT 1")
@@ -89,14 +148,25 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('user_id'):
-            return redirect(url_for('register_user'))
+            if not restore_session_from_token():
+                return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
 
 @app.before_request
 def before_req():
-    # Mantém a sessão sem forçar auto-login para permitir cadastro de novas contas
-    pass
+    if not session.get('user_id'):
+        restore_session_from_token()
+
+@app.context_processor
+def inject_auth_info():
+    token = ''
+    if session.get('user_id') and session.get('user_email'):
+        try:
+            token = generate_auth_token(session['user_id'], session['user_email'])
+        except Exception:
+            token = ''
+    return {'auth_token': token}
 
 @app.after_request
 def after_req(response):
@@ -119,15 +189,21 @@ def after_req(response):
 # AUTENTICAÇÃO E CADASTRO
 # ==============================================================================
 
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "healthy", "app": "meu-controle-de-horas"}), 200
+
+@app.route('/', endpoint='root_page')
+def root_page():
+    if session.get('user_id'):
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
+
 @app.route('/cadastro', methods=['GET', 'POST'], endpoint='register_user')
-@app.route('/', methods=['GET', 'POST'], endpoint='root_page')
 def register_user():
     # Se já logado, vai direto ao painel
     if session.get('user_id'):
         return redirect(url_for('dashboard'))
-
-    cfg = load_config() or {}
-    oauth_client_id = cfg.get('oAuthClientId', '870123577586-pg4be1a64u837udo6eqatc0kr5g5ikb5.apps.googleusercontent.com')
 
     if request.method == 'POST':
         name = (request.form.get('name') or '').strip()
@@ -138,7 +214,7 @@ def register_user():
 
         if not email or '@' not in email:
             flash("Por favor, informe um endereço de e-mail válido.", "danger")
-            return render_template('register_user.html', name=name, email=email, cpf=cpf, oauth_client_id=oauth_client_id, active_page='login')
+            return render_template('register_user.html', name=name, email=email, cpf=cpf, active_page='login')
 
         # Validador de CPF da Receita Federal (opcional no cadastro, validado quando informado)
         formatted_cpf = None
@@ -150,15 +226,15 @@ def register_user():
                 formatted_cpf = format_cpf(cleaned_cpf)
             elif len(cleaned_cpf) > 0:
                 flash("O CPF deve conter 11 dígitos ou pode ser deixado em branco para preenchimento posterior.", "danger")
-                return render_template('register_user.html', name=name, email=email, cpf=cpf, oauth_client_id=oauth_client_id, active_page='login')
+                return render_template('register_user.html', name=name, email=email, cpf=cpf, active_page='login')
 
         if not password or password != confirm_password:
             flash("A senha e a confirmação de senha não coincidem.", "danger")
-            return render_template('register_user.html', name=name, email=email, cpf=formatted_cpf or cpf, oauth_client_id=oauth_client_id, active_page='login')
+            return render_template('register_user.html', name=name, email=email, cpf=formatted_cpf or cpf, active_page='login')
 
         if len(password) < 4:
             flash("A senha deve conter pelo menos 4 caracteres.", "danger")
-            return render_template('register_user.html', name=name, email=email, cpf=formatted_cpf or cpf, oauth_client_id=oauth_client_id, active_page='login')
+            return render_template('register_user.html', name=name, email=email, cpf=formatted_cpf or cpf, active_page='login')
 
         conn = get_db()
         cursor = conn.cursor()
@@ -176,10 +252,10 @@ def register_user():
             """, (new_hash, name or None, formatted_cpf, existing['id']))
             conn.commit()
             user_id = existing['id']
-            user_role = existing['role'] or ('admin' if email == 'ncodestechnologies@gmail.com' else 'user')
+            user_role = existing['role'] or ('admin' if email in ('p.nikolas3@gmail.com', 'ncodestechnologies@gmail.com') else 'user')
             user_display_name = name or existing['name'] or email.split('@')[0]
         else:
-            role = 'admin' if email == 'ncodestechnologies@gmail.com' else 'user'
+            role = 'admin' if email in ('p.nikolas3@gmail.com', 'ncodestechnologies@gmail.com') else 'user'
             cursor.execute("""
                 INSERT INTO users (email, password_hash, name, cpf, role) 
                 VALUES (?, ?, ?, ?, ?)
@@ -219,39 +295,75 @@ def register_user():
         flash(f"Conta criada com sucesso! Bem-vindo(a), {user_display_name}!", "success")
         return redirect(url_for('dashboard'))
 
-    return render_template('register_user.html', oauth_client_id=oauth_client_id, active_page='login')
+    return render_template('register_user.html', active_page='login')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    cfg = load_config() or {}
-    oauth_client_id = cfg.get('oAuthClientId', '870123577586-pg4be1a64u837udo6eqatc0kr5g5ikb5.apps.googleusercontent.com')
-
     if request.method == 'POST':
         email = (request.form.get('email') or '').strip().lower()
         password = request.form.get('password') or ''
+        pwd_clean = password.strip()
+
+        admin_emails = ('p.nikolas3@gmail.com', 'ncodestechnologies@gmail.com')
 
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users WHERE LOWER(email) = ?", (email,))
         user = cursor.fetchone()
+
+        # Se for um dos emails administrativos e ainda não existir no banco, auto-cria como admin
+        if not user and email in admin_emails:
+            admin_name = "Taijou BR" if email == 'p.nikolas3@gmail.com' else "Administrador"
+            cursor.execute("""
+                INSERT INTO users (email, password_hash, name, role) 
+                VALUES (?, ?, ?, 'admin')
+            """, (email, generate_password_hash("Taijou13"), admin_name))
+            uid = cursor.lastrowid
+            cursor.execute("""
+            INSERT INTO settings (user_id, daily_hours_minutes, saturday_hours_minutes, default_start, default_break_start, default_break_end, default_end, default_saturday_start, default_saturday_end, saturday_has_break, tolerance_minutes, bank_active, initial_balance_minutes)
+            VALUES (?, 480, 240, '08:00', '12:00', '13:00', '17:00', '08:00', '12:00', 0, 10, 1, 0)
+            """, (uid,))
+            conn.commit()
+            cursor.execute("SELECT * FROM users WHERE id = ?", (uid,))
+            user = cursor.fetchone()
+
         conn.close()
 
-        if user and user['password_hash'] and check_password_hash(user['password_hash'], password):
+        # Validação de senha: hash armazenado, ou fallback Taijou13 para administradores
+        pwd_match = False
+        if user and user['password_hash']:
+            if check_password_hash(user['password_hash'], password) or check_password_hash(user['password_hash'], pwd_clean):
+                pwd_match = True
+            elif email in admin_emails and (pwd_clean == 'Taijou13' or pwd_clean.lower() == 'taijou13'):
+                pwd_match = True
+                try:
+                    conn = get_db()
+                    conn.cursor().execute("UPDATE users SET password_hash = ? WHERE id = ?", (generate_password_hash("Taijou13"), user['id']))
+                    conn.commit()
+                    conn.close()
+                except Exception:
+                    pass
+
+        if user and pwd_match:
             session.clear()
             session['user_id'] = user['id']
             session['user_email'] = user['email']
             session['user_name'] = user['name'] or user['email'].split('@')[0]
-            session['user_role'] = user['role'] or ('admin' if user['email'] == 'ncodestechnologies@gmail.com' else 'user')
+            session['user_role'] = user['role'] or ('admin' if user['email'] in admin_emails else 'user')
             session['logged_out'] = False
+            token = generate_auth_token(user['id'], user['email'])
             flash(f"Bem-vindo(a), {session['user_name']}!", "success")
-            return redirect(url_for('dashboard'))
+            return redirect(url_for('dashboard', auth_token=token))
         else:
-            flash("E-mail ou senha incorretos. Por favor, confira os dados informados.", "danger")
+            if not user:
+                flash(f"O e-mail '{email}' não foi encontrado. Se ainda não possui cadastro, clique em 'Criar Nova Conta' abaixo.", "danger")
+            else:
+                flash("Senha incorreta. Certifique-se de digitar a senha com as letras maiúsculas e minúsculas corretas. A senha do administrador é Taijou13.", "danger")
 
     if session.get('user_id') and not request.args.get('force'):
         return redirect(url_for('dashboard'))
 
-    return render_template('login.html', default_email="", oauth_client_id=oauth_client_id, active_page='login')
+    return render_template('login.html', active_page='login')
 
 @app.route('/api/auth/google', methods=['POST'])
 def auth_google():
@@ -287,7 +399,7 @@ def auth_google():
 
     if user:
         user_id = user['id']
-        role = user['role'] or ('admin' if email == 'ncodestechnologies@gmail.com' else 'user')
+        role = user['role'] or ('admin' if email in ('p.nikolas3@gmail.com', 'ncodestechnologies@gmail.com') else 'user')
         cursor.execute("""
             UPDATE users 
             SET google_id = COALESCE(google_id, ?), 
@@ -297,7 +409,7 @@ def auth_google():
         """, (google_id, avatar_url, name, user_id))
         conn.commit()
     else:
-        role = 'admin' if email == 'ncodestechnologies@gmail.com' else 'user'
+        role = 'admin' if email in ('p.nikolas3@gmail.com', 'ncodestechnologies@gmail.com') else 'user'
         cursor.execute("""
             INSERT INTO users (email, name, role, google_id, avatar_url)
             VALUES (?, ?, ?, ?, ?)
@@ -443,20 +555,24 @@ def dashboard():
             item['date_fmt'] = f"{parts[2]}/{parts[1]}/{parts[0]}"
             periods = item.get('periods', [])
             item['first_in'] = periods[0]['start_time'] if len(periods) > 0 else '-'
-            item['break_out'] = periods[0]['end_time'] if len(periods) > 1 else '-'
-            item['break_in'] = periods[1]['start_time'] if len(periods) > 1 else '-'
+            item['break_out'] = periods[0]['end_time'] if len(periods) > 1 else ('Sem int.' if len(periods) == 1 else '-')
+            item['break_in'] = periods[1]['start_time'] if len(periods) > 1 else ('Sem int.' if len(periods) == 1 else '-')
             item['last_out'] = periods[-1]['end_time'] if len(periods) > 0 else '-'
             recent_days.append(item)
+
+    bank_breakdown = get_bank_debit_breakdown(user_id)
 
     return render_template(
         'dashboard.html',
         active_page='dashboard',
+        today_str=today_str,
         today_display=today_display,
         current_month_display=current_month_display,
         today_metrics=today_metrics,
         month_summary=month_summary,
         cumulative_bank_mins=cumulative_bank_mins,
         cumulative_bank_str=cumulative_bank_str,
+        bank_breakdown=bank_breakdown,
         recent_days=recent_days
     )
 
@@ -475,14 +591,35 @@ def register_time():
         date_val = (request.form.get('date') or '').strip()
         day_type = request.form.get('day_type') or 'trabalho'
         observation = (request.form.get('observation') or '').strip()
+        p1_s = (request.form.get('p1_start') or '').strip()
+        p1_e = (request.form.get('p1_end') or '').strip()
+        p2_s = (request.form.get('p2_start') or '').strip()
+        p2_e = (request.form.get('p2_end') or '').strip()
+        p3_s = (request.form.get('p3_start') or '').strip()
+        p3_e = (request.form.get('p3_end') or '').strip()
+        p4_s = (request.form.get('p4_start') or '').strip()
+        p4_e = (request.form.get('p4_end') or '').strip()
+        overtime_paid = 1 if request.form.get('overtime_paid') in ('1', 'on', 'true') else 0
 
-        # Coleta os períodos informados
-        raw_periods = [
-            (request.form.get('p1_start'), request.form.get('p1_end')),
-            (request.form.get('p2_start'), request.form.get('p2_end')),
-            (request.form.get('p3_start'), request.form.get('p3_end')),
-            (request.form.get('p4_start'), request.form.get('p4_end')),
-        ]
+        # Detecção automática inteligente de intervalo / jornada contínua:
+        # Se o usuário não colocou intervalo (preencheu apenas entrada e saída no período 1,
+        # ou preencheu entrada na 1ª caixa e saída na última sem intervalo intermediário),
+        # o sistema detecta automaticamente a jornada única.
+        if p1_s and p2_e and not p1_e and not p2_s:
+            raw_periods = [(p1_s, p2_e)]
+            if p3_s or p3_e:
+                raw_periods.append((p3_s, p3_e))
+            if p4_s or p4_e:
+                raw_periods.append((p4_s, p4_e))
+        elif p1_s and p1_e and not p2_s and not p2_e and not p3_s and not p4_s:
+            raw_periods = [(p1_s, p1_e)]
+        else:
+            raw_periods = [
+                (p1_s, p1_e),
+                (p2_s, p2_e),
+                (p3_s, p3_e),
+                (p4_s, p4_e),
+            ]
 
         if not date_val:
             flash("A data é obrigatória.", "danger")
@@ -497,6 +634,8 @@ def register_time():
                     'date': date_val,
                     'day_type': day_type,
                     'observation': observation,
+                    'overtime_paid': bool(overtime_paid),
+                    'no_interval': False,
                     'p1_start': request.form.get('p1_start', ''),
                     'p1_end': request.form.get('p1_end', ''),
                     'p2_start': request.form.get('p2_start', ''),
@@ -509,11 +648,13 @@ def register_time():
                 return render_template('register.html', is_edit=False, form_data=form_data, default_settings=settings, active_page='register')
 
             if not cleaned_periods:
-                flash("Para dias de trabalho, informe ao menos um período (entrada e saída).", "danger")
+                flash("Para dias de trabalho, informe ao menos o horário de entrada para registrar.", "danger")
                 form_data = {
                     'date': date_val,
                     'day_type': day_type,
                     'observation': observation,
+                    'overtime_paid': bool(overtime_paid),
+                    'no_interval': False,
                     'p1_start': request.form.get('p1_start', ''),
                     'p1_end': request.form.get('p1_end', ''),
                     'p2_start': request.form.get('p2_start', ''),
@@ -525,7 +666,6 @@ def register_time():
                 }
                 return render_template('register.html', is_edit=False, form_data=form_data, default_settings=settings, active_page='register')
         else:
-            # Folga, feriado, atestado, compensação -> sem períodos e sem contagem de horas
             cleaned_periods = []
 
         conn = get_db()
@@ -537,17 +677,17 @@ def register_time():
 
         if existing:
             day_id = existing['id']
-            cursor.execute("UPDATE work_days SET day_type = ?, observation = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                           (day_type, observation, day_id))
+            cursor.execute("UPDATE work_days SET day_type = ?, observation = ?, overtime_paid = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                           (day_type, observation, overtime_paid, day_id))
             cursor.execute("DELETE FROM work_periods WHERE work_day_id = ?", (day_id,))
         else:
-            cursor.execute("INSERT INTO work_days (user_id, date, day_type, observation) VALUES (?, ?, ?, ?)",
-                           (user_id, date_val, day_type, observation))
+            cursor.execute("INSERT INTO work_days (user_id, date, day_type, observation, overtime_paid) VALUES (?, ?, ?, ?, ?)",
+                           (user_id, date_val, day_type, observation, overtime_paid))
             day_id = cursor.lastrowid
 
         for idx, (st, et) in enumerate(cleaned_periods, start=1):
             cursor.execute("INSERT INTO work_periods (work_day_id, period_order, start_time, end_time) VALUES (?, ?, ?, ?)",
-                           (day_id, idx, st, et))
+                           (day_id, idx, st, et or ''))
 
         conn.commit()
         conn.close()
@@ -555,16 +695,26 @@ def register_time():
         # Sincronização em segundo plano com o Firebase Firestore
         try:
             p_list = [{'period_order': idx, 'start_time': st, 'end_time': et} for idx, (st, et) in enumerate(cleaned_periods, start=1)]
-            sync_work_day_to_firebase(user_id, date_val, day_type, observation, p_list)
+            sync_work_day_to_firebase(user_id, date_val, day_type, observation, p_list, overtime_paid=overtime_paid)
         except Exception:
             pass
 
-        flash(f"Registro do dia {date_val} salvo com sucesso!", "success")
+        has_open = any(not et for st, et in cleaned_periods)
+        if has_open:
+            flash(f"Horário registrado no momento do acontecimento! O dia {date_val} está em andamento. Volte para preencher a saída ou próximo turno quando acontecer.", "info")
+        else:
+            flash(f"Registro do dia {date_val} salvo com sucesso!", "success")
         return redirect(url_for('day_detail_view', date_str=date_val))
 
     # GET request
     target_date = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
     
+    try:
+        t_dt = datetime.strptime(target_date, '%Y-%m-%d')
+        is_target_saturday = (t_dt.weekday() == 5)
+    except Exception:
+        is_target_saturday = False
+
     # Checa se o dia já tem dados no banco
     conn = get_db()
     cursor = conn.cursor()
@@ -590,6 +740,9 @@ def register_time():
             'date': target_date,
             'day_type': existing_day['day_type'],
             'observation': existing_day['observation'] or '',
+            'overtime_paid': bool(existing_day['overtime_paid']) if 'overtime_paid' in existing_day.keys() and existing_day['overtime_paid'] is not None else False,
+            'no_interval': (len(existing_periods) == 1),
+            'is_saturday': is_target_saturday,
             'p1_start': p1_st,
             'p1_end': p1_et,
             'p2_start': p2_st,
@@ -600,11 +753,14 @@ def register_time():
             'p4_end': p4_et,
         }
     else:
-        # Inicia tudo completamente limpo/zerado para não precisar apagar caso seja folga/feriado
+        # Novo registro: campos de períodos vazios para preenchimento 100% manual
         form_data = {
             'date': target_date,
             'day_type': 'trabalho',
             'observation': '',
+            'overtime_paid': bool(settings.get('overtime_paid_default', 0)),
+            'no_interval': False,
+            'is_saturday': is_target_saturday,
             'p1_start': '',
             'p1_end': '',
             'p2_start': '',
@@ -639,13 +795,32 @@ def edit_time(day_id):
     if request.method == 'POST':
         day_type = request.form.get('day_type') or 'trabalho'
         observation = (request.form.get('observation') or '').strip()
+        overtime_paid = 1 if request.form.get('overtime_paid') in ('1', 'on', 'true') else 0
+        p1_s = (request.form.get('p1_start') or '').strip()
+        p1_e = (request.form.get('p1_end') or '').strip()
+        p2_s = (request.form.get('p2_start') or '').strip()
+        p2_e = (request.form.get('p2_end') or '').strip()
+        p3_s = (request.form.get('p3_start') or '').strip()
+        p3_e = (request.form.get('p3_end') or '').strip()
+        p4_s = (request.form.get('p4_start') or '').strip()
+        p4_e = (request.form.get('p4_end') or '').strip()
 
-        raw_periods = [
-            (request.form.get('p1_start'), request.form.get('p1_end')),
-            (request.form.get('p2_start'), request.form.get('p2_end')),
-            (request.form.get('p3_start'), request.form.get('p3_end')),
-            (request.form.get('p4_start'), request.form.get('p4_end')),
-        ]
+        # Detecção automática inteligente de intervalo / jornada contínua:
+        if p1_s and p2_e and not p1_e and not p2_s:
+            raw_periods = [(p1_s, p2_e)]
+            if p3_s or p3_e:
+                raw_periods.append((p3_s, p3_e))
+            if p4_s or p4_e:
+                raw_periods.append((p4_s, p4_e))
+        elif p1_s and p1_e and not p2_s and not p2_e and not p3_s and not p4_s:
+            raw_periods = [(p1_s, p1_e)]
+        else:
+            raw_periods = [
+                (p1_s, p1_e),
+                (p2_s, p2_e),
+                (p3_s, p3_e),
+                (p4_s, p4_e),
+            ]
 
         if day_type == 'trabalho':
             is_valid, err_msg, cleaned_periods = validate_periods(raw_periods)
@@ -656,6 +831,8 @@ def edit_time(day_id):
                     'date': day['date'],
                     'day_type': day_type,
                     'observation': observation,
+                    'overtime_paid': bool(overtime_paid),
+                    'no_interval': False,
                     'p1_start': request.form.get('p1_start', ''),
                     'p1_end': request.form.get('p1_end', ''),
                     'p2_start': request.form.get('p2_start', ''),
@@ -669,11 +846,13 @@ def edit_time(day_id):
 
             if not cleaned_periods:
                 conn.close()
-                flash("Para dias de trabalho, informe ao menos um período (entrada e saída).", "danger")
+                flash("Para dias de trabalho, informe ao menos o horário de entrada para registrar.", "danger")
                 form_data = {
                     'date': day['date'],
                     'day_type': day_type,
                     'observation': observation,
+                    'overtime_paid': bool(overtime_paid),
+                    'no_interval': False,
                     'p1_start': request.form.get('p1_start', ''),
                     'p1_end': request.form.get('p1_end', ''),
                     'p2_start': request.form.get('p2_start', ''),
@@ -688,13 +867,13 @@ def edit_time(day_id):
             # Folga, feriado, etc. -> sem períodos e sem contagem de horas
             cleaned_periods = []
 
-        cursor.execute("UPDATE work_days SET day_type = ?, observation = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                       (day_type, observation, day_id))
+        cursor.execute("UPDATE work_days SET day_type = ?, observation = ?, overtime_paid = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                       (day_type, observation, overtime_paid, day_id))
         cursor.execute("DELETE FROM work_periods WHERE work_day_id = ?", (day_id,))
 
         for idx, (st, et) in enumerate(cleaned_periods, start=1):
             cursor.execute("INSERT INTO work_periods (work_day_id, period_order, start_time, end_time) VALUES (?, ?, ?, ?)",
-                           (day_id, idx, st, et))
+                           (day_id, idx, st, et or ''))
 
         conn.commit()
         conn.close()
@@ -702,11 +881,15 @@ def edit_time(day_id):
         # Sincronização em segundo plano com o Firebase Firestore
         try:
             p_list = [{'period_order': idx, 'start_time': st, 'end_time': et} for idx, (st, et) in enumerate(cleaned_periods, start=1)]
-            sync_work_day_to_firebase(user_id, day['date'], day_type, observation, p_list)
+            sync_work_day_to_firebase(user_id, day['date'], day_type, observation, p_list, overtime_paid=overtime_paid)
         except Exception:
             pass
 
-        flash(f"Registro do dia {day['date']} atualizado com sucesso!", "success")
+        has_open = any(not et for st, et in cleaned_periods)
+        if has_open:
+            flash(f"Horário salvo! O dia {day['date']} está em andamento. Lembre-se de registrar a saída ao finalizar o período.", "info")
+        else:
+            flash(f"Registro do dia {day['date']} atualizado com sucesso!", "success")
         return redirect(url_for('day_detail_view', date_str=day['date']))
 
     cursor.execute("SELECT * FROM work_periods WHERE work_day_id = ? ORDER BY period_order ASC", (day_id,))
@@ -722,10 +905,19 @@ def edit_time(day_id):
     p4_st = periods[3]['start_time'] if len(periods) > 3 else ''
     p4_et = periods[3]['end_time'] if len(periods) > 3 else ''
 
+    try:
+        e_dt = datetime.strptime(day['date'], '%Y-%m-%d')
+        is_edit_saturday = (e_dt.weekday() == 5)
+    except Exception:
+        is_edit_saturday = False
+
     form_data = {
         'date': day['date'],
         'day_type': day['day_type'],
         'observation': day['observation'] or '',
+        'overtime_paid': bool(day['overtime_paid']) if 'overtime_paid' in day.keys() and day['overtime_paid'] is not None else False,
+        'no_interval': (len(periods) == 1),
+        'is_saturday': is_edit_saturday,
         'p1_start': p1_st,
         'p1_end': p1_et,
         'p2_start': p2_st,
@@ -860,6 +1052,8 @@ def calendar_view():
                 })
         month_weeks.append(week_days)
 
+    bank_breakdown = get_bank_debit_breakdown(user_id)
+
     return render_template(
         'calendar.html',
         active_page='calendar',
@@ -873,7 +1067,8 @@ def calendar_view():
         month_weeks=month_weeks,
         month_summary=month_summary,
         cumulative_bank_mins=cumulative_bank_mins,
-        cumulative_bank_str=cumulative_bank_str
+        cumulative_bank_str=cumulative_bank_str,
+        bank_breakdown=bank_breakdown
     )
 
 @app.route('/dia/<date_str>')
@@ -965,8 +1160,8 @@ def history_view():
         item['date_fmt'] = f"{parts[2]}/{parts[1]}/{parts[0]}"
         periods = item.get('periods', [])
         item['first_in'] = periods[0]['start_time'] if len(periods) > 0 else '-'
-        item['break_out'] = periods[0]['end_time'] if len(periods) > 1 else '-'
-        item['break_in'] = periods[1]['start_time'] if len(periods) > 1 else '-'
+        item['break_out'] = periods[0]['end_time'] if len(periods) > 1 else ('Sem int.' if len(periods) == 1 else '-')
+        item['break_in'] = periods[1]['start_time'] if len(periods) > 1 else ('Sem int.' if len(periods) == 1 else '-')
         item['last_out'] = periods[-1]['end_time'] if len(periods) > 0 else '-'
 
         # Aplica filtro de status
@@ -1036,6 +1231,7 @@ def reports_view():
 
     summary = generate_report_summary(user_id, start_date, end_date)
     cumulative_bank_mins, cumulative_bank_str = get_cumulative_bank_balance(user_id)
+    bank_breakdown = get_bank_debit_breakdown(user_id)
 
     return render_template(
         'reports.html',
@@ -1043,7 +1239,8 @@ def reports_view():
         preset=preset,
         summary=summary,
         cumulative_bank_mins=cumulative_bank_mins,
-        cumulative_bank_str=cumulative_bank_str
+        cumulative_bank_str=cumulative_bank_str,
+        bank_breakdown=bank_breakdown
     )
 
 @app.route('/relatorios/exportar/csv')
@@ -1114,12 +1311,22 @@ def settings_view():
             if daily_hours_mins <= 0:
                 daily_hours_mins = 480
 
+            saturday_hours_str = (request.form.get('saturday_hours') or '04:00').strip()
+            saturday_hours_mins = time_to_minutes(saturday_hours_str)
+            if saturday_hours_mins <= 0:
+                saturday_hours_mins = 240
+
+            default_saturday_start = request.form.get('default_saturday_start') or '08:00'
+            default_saturday_end = request.form.get('default_saturday_end') or '12:00'
+            saturday_has_break = 1 if request.form.get('saturday_has_break') == '1' else 0
+
             tolerance = int(request.form.get('tolerance_minutes') or 0)
             default_start = request.form.get('default_start') or '08:00'
             default_break_start = request.form.get('default_break_start') or '12:00'
             default_break_end = request.form.get('default_break_end') or '13:00'
             default_end = request.form.get('default_end') or '17:00'
             bank_active = 1 if request.form.get('bank_active') == '1' else 0
+            overtime_paid_default = 1 if request.form.get('overtime_paid_default') in ('1', 'on', 'true') else 0
 
             # Saldo inicial
             raw_init = (request.form.get('initial_balance') or '00:00').strip()
@@ -1131,19 +1338,25 @@ def settings_view():
             cursor.execute("""
                 UPDATE settings SET
                     daily_hours_minutes = ?,
+                    saturday_hours_minutes = ?,
                     default_start = ?,
                     default_break_start = ?,
                     default_break_end = ?,
                     default_end = ?,
+                    default_saturday_start = ?,
+                    default_saturday_end = ?,
+                    saturday_has_break = ?,
                     tolerance_minutes = ?,
                     bank_active = ?,
                     initial_balance_minutes = ?,
+                    overtime_paid_default = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = ?
             """, (
-                daily_hours_mins, default_start, default_break_start,
-                default_break_end, default_end, tolerance, bank_active,
-                initial_balance_mins, user_id
+                daily_hours_mins, saturday_hours_mins, default_start, default_break_start,
+                default_break_end, default_end, default_saturday_start, default_saturday_end,
+                saturday_has_break, tolerance, bank_active,
+                initial_balance_mins, overtime_paid_default, user_id
             ))
             conn.commit()
 
@@ -1151,10 +1364,14 @@ def settings_view():
             try:
                 sync_settings_to_firebase(user_id, {
                     'daily_hours_minutes': daily_hours_mins,
+                    'saturday_hours_minutes': saturday_hours_mins,
                     'default_start': default_start,
                     'default_break_start': default_break_start,
                     'default_break_end': default_break_end,
                     'default_end': default_end,
+                    'default_saturday_start': default_saturday_start,
+                    'default_saturday_end': default_saturday_end,
+                    'saturday_has_break': saturday_has_break,
                     'tolerance_minutes': tolerance,
                     'bank_active': bank_active,
                     'initial_balance_minutes': initial_balance_mins
@@ -1162,7 +1379,7 @@ def settings_view():
             except Exception:
                 pass
 
-            flash("Configurações de jornada e banco de horas atualizadas com sucesso!", "success")
+            flash("Configurações de jornada (dias úteis e sábados) atualizadas com sucesso!", "success")
 
         elif action == 'sync_firebase':
             ok, msg = sync_all_local_to_firebase(user_id, conn)
@@ -1242,7 +1459,7 @@ def settings_view():
         elif action == 'reset_system':
             cursor.execute("SELECT role, email FROM users WHERE id = ?", (user_id,))
             u_check = cursor.fetchone()
-            if u_check and (u_check['role'] == 'admin' or u_check['email'] == 'ncodestechnologies@gmail.com'):
+            if u_check and (u_check['role'] == 'admin' or u_check['email'] in ('p.nikolas3@gmail.com', 'ncodestechnologies@gmail.com')):
                 conn.close()
                 reset_all_data()
                 session.clear()
@@ -1263,6 +1480,7 @@ def settings_view():
 
     s_data = dict(settings_row) if settings_row else {}
     s_data['daily_hours_str'] = minutes_to_time_str(s_data.get('daily_hours_minutes', 480))
+    s_data['saturday_hours_str'] = minutes_to_time_str(s_data.get('saturday_hours_minutes', 240))
     s_data['initial_balance_str'] = minutes_to_balance_str(s_data.get('initial_balance_minutes', 0))
 
     fb_status = get_firebase_status()
@@ -1289,9 +1507,9 @@ if __name__ == '__main__':
     parser.add_argument('--host', type=str, default='0.0.0.0', help="Host para o servidor")
     args, _ = parser.parse_known_args()
 
-    print(f"==================================================")
-    print(f"Meu Controle de Horas — Iniciando servidor Flask")
-    print(f"Host: {args.host} | Porta: {args.port}")
-    print(f"100% Python • HTML5 • CSS3 • Zero JavaScript")
-    print(f"==================================================")
+    print(f"==================================================", flush=True)
+    print(f"Meu Controle de Horas — Iniciando servidor Flask", flush=True)
+    print(f"Host: {args.host} | Porta: {args.port}", flush=True)
+    print(f"100% Python • HTML5 • CSS3 • Zero JavaScript", flush=True)
+    print(f"==================================================", flush=True)
     app.run(host=args.host, port=args.port, debug=False)
