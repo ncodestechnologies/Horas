@@ -9,6 +9,7 @@ import calendar
 import argparse
 import json
 import base64
+import time
 from datetime import datetime, date, timedelta
 from functools import wraps
 
@@ -136,10 +137,33 @@ def restore_session_from_token():
                     session['user_name'] = user_name or user['email'].split('@')[0]
                     session['user_role'] = user['role'] or ('admin' if user['email'] in ('p.nikolas3@gmail.com', 'ncodestechnologies@gmail.com') else 'user')
                     session['logged_out'] = False
+                    # Sincroniza dados com a nuvem Firestore automaticamente
+                    ensure_user_synced_from_firebase(user['id'], min_interval=5)
                     return True
             except Exception:
                 pass
     return False
+
+# Cache de controle de sincronização para instâncias serverless (Vercel)
+_user_last_firebase_pull = {}
+
+def ensure_user_synced_from_firebase(user_id, min_interval=5, force=False):
+    """
+    Garante que os registros de dias, banco de horas e perfil no SQLite
+    estejam sempre sincronizados de forma 100% automática com a nuvem Firebase Firestore.
+    Essencial para o Vercel Serverless, onde instâncias são efêmeras e independentes.
+    """
+    global _user_last_firebase_pull
+    now = time.time()
+    last = _user_last_firebase_pull.get(user_id, 0)
+    if force or (now - last > min_interval):
+        _user_last_firebase_pull[user_id] = now
+        try:
+            conn = get_db()
+            pull_from_firebase(user_id, conn)
+            conn.close()
+        except Exception as e:
+            print(f"Aviso no auto-sync do Firebase para user_id {user_id}: {e}")
 
 # Inicializa o banco de dados na inicialização do app (essencial para ambientes serverless como Vercel)
 try:
@@ -175,6 +199,9 @@ def login_required(f):
         if not session.get('user_id'):
             if not restore_session_from_token():
                 return redirect(url_for('login'))
+        uid = session.get('user_id')
+        if uid and request.method == 'GET':
+            ensure_user_synced_from_firebase(uid, min_interval=5)
         return f(*args, **kwargs)
     return decorated_function
 
@@ -384,24 +411,17 @@ def login():
             session['user_email'] = user['email']
             user_name = user['name']
 
-            # Sincroniza dados de perfil do Firebase Firestore (persistência entre dispositivos e após deploys)
+            # Sincroniza dados completos e perfil do Firebase Firestore
             try:
-                prof = pull_user_profile_from_firebase(user_id=user['id'], email=user['email'])
-                if prof:
-                    fb_name = prof.get('name')
-                    fb_cpf = prof.get('cpf')
-                    if fb_name or fb_cpf:
-                        conn_up = get_db()
-                        conn_up.execute("""
-                            UPDATE users 
-                            SET name = COALESCE(NULLIF(?, ''), name),
-                                cpf = COALESCE(NULLIF(?, ''), cpf)
-                            WHERE id = ?
-                        """, (fb_name, fb_cpf, user['id']))
-                        conn_up.commit()
-                        conn_up.close()
-                        if fb_name:
-                            user_name = fb_name
+                ensure_user_synced_from_firebase(user['id'], force=True)
+                # Recarrega nome atualizado
+                conn_name = get_db()
+                c_name = conn_name.cursor()
+                c_name.execute("SELECT name FROM users WHERE id = ?", (user['id'],))
+                u_updated = c_name.fetchone()
+                conn_name.close()
+                if u_updated and u_updated['name']:
+                    user_name = u_updated['name']
             except Exception:
                 pass
 
@@ -1147,6 +1167,15 @@ def day_detail_view(date_str):
     cursor.execute("SELECT * FROM work_days WHERE user_id = ? AND date = ?", (user_id, date_str))
     day = cursor.fetchone()
     conn.close()
+
+    if not day:
+        # Se não encontrou no banco local, tenta buscar do Firebase Firestore
+        ensure_user_synced_from_firebase(user_id, min_interval=5, force=True)
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM work_days WHERE user_id = ? AND date = ?", (user_id, date_str))
+        day = cursor.fetchone()
+        conn.close()
 
     days_data, settings = get_days_data_in_range(user_id, date_str, date_str)
 

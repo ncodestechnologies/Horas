@@ -3,6 +3,7 @@ import json
 import logging
 import requests
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -346,7 +347,7 @@ def sync_all_local_to_firebase(user_id, conn):
 
 def pull_from_firebase(user_id, conn):
     """
-    Restaura/importa dados do Firebase Firestore para a base de dados local caso necessário.
+    Restaura/sincroniza dados do Firebase Firestore para a base de dados local de forma paralela e ultrarrápida.
     """
     base_url, api_key = get_base_url()
     if not base_url:
@@ -354,11 +355,54 @@ def pull_from_firebase(user_id, conn):
     try:
         cursor = conn.cursor()
 
-        # 0. Puxar Perfil do Usuário (Nome, CPF)
+        # Determina o e-mail do usuário para busca de perfil se necessário
         cursor.execute("SELECT email FROM users WHERE id = ?", (user_id,))
         u_row = cursor.fetchone()
         u_email = u_row['email'] if u_row else None
-        prof = pull_user_profile_from_firebase(user_id=user_id, email=u_email)
+
+        doc_id = f"user_{user_id}"
+        query_body = {
+            'structuredQuery': {
+                'from': [{'collectionId': 'work_days'}],
+                'where': {
+                    'fieldFilter': {
+                        'field': {'fieldPath': 'userId'},
+                        'op': 'EQUAL',
+                        'value': {'stringValue': str(user_id)}
+                    }
+                }
+            }
+        }
+
+        # Busca paralela: perfil, configurações e jornadas simultaneamente
+        def _fetch_profile():
+            try:
+                return pull_user_profile_from_firebase(user_id=user_id, email=u_email)
+            except Exception:
+                return None
+
+        def _fetch_settings():
+            try:
+                return requests.get(f"{base_url}/settings/{doc_id}?key={api_key}", timeout=5)
+            except Exception:
+                return None
+
+        def _fetch_days():
+            try:
+                return requests.post(f"{base_url}:runQuery?key={api_key}", json=query_body, timeout=8)
+            except Exception:
+                return None
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            fut_prof = executor.submit(_fetch_profile)
+            fut_settings = executor.submit(_fetch_settings)
+            fut_days = executor.submit(_fetch_days)
+
+            prof = fut_prof.result()
+            r_set = fut_settings.result()
+            r_q = fut_days.result()
+
+        # 0. Atualiza Perfil
         if prof and (prof.get('name') or prof.get('cpf')):
             cursor.execute("""
                 UPDATE users 
@@ -368,10 +412,8 @@ def pull_from_firebase(user_id, conn):
             """, (prof.get('name'), prof.get('cpf'), user_id))
             conn.commit()
 
-        # 1. Puxar Settings
-        doc_id = f"user_{user_id}"
-        r_set = requests.get(f"{base_url}/settings/{doc_id}?key={api_key}", timeout=5)
-        if r_set.status_code == 200:
+        # 1. Atualiza Settings
+        if r_set and r_set.status_code == 200:
             fields = r_set.json().get('fields', {})
             daily_hours = int(fields.get('dailyHoursMinutes', {}).get('integerValue', 480))
             def_start = fields.get('defaultStart', {}).get('stringValue', '08:00')
@@ -389,23 +431,11 @@ def pull_from_firebase(user_id, conn):
                     bank_active = ?, initial_balance_minutes = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = ?
             """, (daily_hours, def_start, def_bstart, def_bend, def_end, tol, bank, init_bal, user_id))
+            conn.commit()
 
-        # 2. Puxar Work Days
-        query_body = {
-            'structuredQuery': {
-                'from': [{'collectionId': 'work_days'}],
-                'where': {
-                    'fieldFilter': {
-                        'field': {'fieldPath': 'userId'},
-                        'op': 'EQUAL',
-                        'value': {'stringValue': str(user_id)}
-                    }
-                }
-            }
-        }
-        r_q = requests.post(f"{base_url}:runQuery?key={api_key}", json=query_body, timeout=8)
+        # 2. Atualiza Work Days
         restored_days = 0
-        if r_q.status_code == 200:
+        if r_q and r_q.status_code == 200:
             items = r_q.json()
             for item in items:
                 doc = item.get('document')
@@ -420,7 +450,6 @@ def pull_from_firebase(user_id, conn):
                 if not d_date:
                     continue
 
-                # Insert or update day
                 cursor.execute("""
                     INSERT INTO work_days (user_id, date, day_type, observation, overtime_paid, updated_at)
                     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
