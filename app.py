@@ -108,9 +108,32 @@ def restore_session_from_token():
                 user = cursor.fetchone()
                 conn.close()
                 if user:
+                    user_name = user['name']
+                    user_cpf = user['cpf'] if 'cpf' in user.keys() else None
+                    # Se o nome ainda for genérico/vazio ou não tiver CPF, busca da nuvem Firestore
+                    if not user_cpf or user_name in ('Taijou BR', 'Administrador', None, ''):
+                        try:
+                            prof = pull_user_profile_from_firebase(user_id=user['id'], email=user['email'])
+                            if prof:
+                                fb_name = prof.get('name')
+                                fb_cpf = prof.get('cpf')
+                                if fb_name or fb_cpf:
+                                    conn_up = get_db()
+                                    conn_up.execute("""
+                                        UPDATE users 
+                                        SET name = COALESCE(NULLIF(?, ''), name),
+                                            cpf = COALESCE(NULLIF(?, ''), cpf)
+                                        WHERE id = ?
+                                    """, (fb_name, fb_cpf, user['id']))
+                                    conn_up.commit()
+                                    conn_up.close()
+                                    if fb_name:
+                                        user_name = fb_name
+                        except Exception:
+                            pass
                     session['user_id'] = user['id']
                     session['user_email'] = user['email']
-                    session['user_name'] = user['name'] or user['email'].split('@')[0]
+                    session['user_name'] = user_name or user['email'].split('@')[0]
                     session['user_role'] = user['role'] or ('admin' if user['email'] in ('p.nikolas3@gmail.com', 'ncodestechnologies@gmail.com') else 'user')
                     session['logged_out'] = False
                     return True
@@ -159,6 +182,20 @@ def login_required(f):
 def before_req():
     if not session.get('user_id'):
         restore_session_from_token()
+    else:
+        # Garante que o nome do usuário na sessão reflita o nome completo e atualizado
+        if session.get('user_name') in ('Taijou BR', 'Administrador', None, ''):
+            uid = session.get('user_id')
+            try:
+                conn = get_db()
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM users WHERE id = ?", (uid,))
+                row = cursor.fetchone()
+                conn.close()
+                if row and row['name'] and row['name'] not in ('Taijou BR', 'Administrador'):
+                    session['user_name'] = row['name']
+            except Exception:
+                pass
 
 @app.context_processor
 def inject_auth_info():
