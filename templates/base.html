@@ -71,6 +71,12 @@
                 <span class="nav-text">Relatórios</span>
               </a>
             </li>
+            <li class="nav-item {% if active_page == 'advances' %}active{% endif %}">
+              <a href="{{ url_for('advances_view') }}" id="nav-advances">
+                <span class="nav-icon">💵</span>
+                <span class="nav-text">Adiantamentos</span>
+              </a>
+            </li>
             <li class="nav-item {% if active_page == 'settings' %}active{% endif %}">
               <a href="{{ url_for('settings_view') }}" id="nav-settings">
                 <span class="nav-icon">⚙️</span>

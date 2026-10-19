@@ -87,6 +87,12 @@
               {% else %}
                 <span class="day-hours-badge day-hours-empty">—</span>
               {% endif %}
+
+              {% if day.advance_total and day.advance_total > 0 %}
+                <span class="day-balance-badge" style="background: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-weight: 700; font-size: 0.72rem; margin-top: 2px;" title="Adiantamento pego neste dia: {{ day.advance_total_fmt }}">
+                  💵 {{ day.advance_total_fmt }}
+                </span>
+              {% endif %}
             </div>
           </a>
         {% endif %}

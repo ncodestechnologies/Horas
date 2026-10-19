@@ -167,6 +167,23 @@ def init_db():
     );
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS advances (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        amount REAL NOT NULL,
+        description TEXT,
+        payment_method TEXT DEFAULT 'pix',
+        status TEXT DEFAULT 'pendente',
+        reference_month TEXT,
+        observation TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    """)
+
     # Configuração dos usuários administrativos principais
     admin_accounts = [
         ("p.nikolas3@gmail.com", "Nikolas Pereira dos Santos", "Taijou13"),
@@ -215,6 +232,7 @@ def reset_all_data():
 
     cursor.execute("DROP TABLE IF EXISTS work_periods")
     cursor.execute("DROP TABLE IF EXISTS work_days")
+    cursor.execute("DROP TABLE IF EXISTS advances")
     cursor.execute("DROP TABLE IF EXISTS settings")
     cursor.execute("DROP TABLE IF EXISTS users")
     conn.commit()

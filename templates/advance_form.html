@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}{% if is_edit %}Editar Adiantamento{% else %}Novo Adiantamento / Vale{% endif %}{% endblock %}
+
+{% block content %}
+<div class="page-header" style="max-width: 720px; margin: 0 auto 1.5rem;">
+  <div>
+    <h1 class="page-title">{% if is_edit %}✏️ Editar Adiantamento{% else %}💵 Registrar Adiantamento com o Chefe{% endif %}</h1>
+    <p class="page-subtitle">Guarde o registro exato do valor, data e motivo do vale para conferir na hora do pagamento.</p>
+  </div>
+  <a href="{{ url_for('advances_view') }}" class="btn btn-secondary btn-sm" id="btn-back-advances">
+    ← Voltar para Vales
+  </a>
+</div>
+
+<div class="form-card" style="max-width: 720px; margin: 0 auto;">
+  <form method="POST" action="{% if is_edit %}{{ url_for('advance_edit', adv_id=advance.id) }}{% else %}{{ url_for('advance_create') }}{% endif %}">
+    
+    <div class="form-row">
+      <div class="form-group">
+        <label for="date" class="form-label">Data em que pegou o Vale <span style="color: var(--danger);">*</span></label>
+        <input 
+          type="date" 
+          id="date" 
+          name="date" 
+          class="form-control" 
+          required 
+          value="{{ form_data.date }}"
+        >
+        <span style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-top: 0.25rem;">
+          Data em que você recebeu o dinheiro ou PIX do chefe.
+        </span>
+      </div>
+
+      <div class="form-group">
+        <label for="amount" class="form-label">Valor do Adiantamento (R$) <span style="color: var(--danger);">*</span></label>
+        <div style="position: relative;">
+          <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-weight: 700; color: #1e3a8a;">R$</span>
+          <input 
+            type="text" 
+            id="amount" 
+            name="amount" 
+            class="form-control" 
+            required 
+            placeholder="0,00"
+            value="{{ form_data.amount }}"
+            style="padding-left: 2.5rem; font-size: 1.15rem; font-weight: 700; color: #1e3a8a;"
+            step="0.01"
+            autocomplete="off"
+          >
+        </div>
+        <span style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-top: 0.25rem;">
+          Exemplo: 150,00 ou 200.50
+        </span>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label for="reference_month" class="form-label">Mês de Desconto no Salário <span style="color: var(--danger);">*</span></label>
+        <select id="reference_month" name="reference_month" class="form-control" required>
+          {% for ym, label in month_options %}
+            <option value="{{ ym }}" {% if form_data.reference_month == ym %}selected{% endif %}>
+              {{ label }}
+            </option>
+          {% endfor %}
+        </select>
+        <span style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-top: 0.25rem;">
+          Em qual pagamento ou folha este vale deve ser descontado.
+        </span>
+      </div>
+
+      <div class="form-group">
+        <label for="payment_method" class="form-label">Forma de Recebimento</label>
+        <select id="payment_method" name="payment_method" class="form-control">
+          <option value="pix" {% if form_data.payment_method == 'pix' %}selected{% endif %}>💠 PIX</option>
+          <option value="dinheiro" {% if form_data.payment_method == 'dinheiro' %}selected{% endif %}>💵 Dinheiro em Espécie (Em mãos)</option>
+          <option value="transferencia" {% if form_data.payment_method == 'transferencia' %}selected{% endif %}>🏦 Transferência Bancária / TED</option>
+          <option value="outro" {% if form_data.payment_method == 'outro' %}selected{% endif %}>📄 Outro</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 1.25rem;">
+      <label for="description" class="form-label">Motivo ou Descrição do Vale</label>
+      <input 
+        type="text" 
+        id="description" 
+        name="description" 
+        class="form-control" 
+        placeholder="Ex: Vale quinzenal, conserto de moto, farmácia, etc."
+        value="{{ form_data.description }}"
+        maxlength="150"
+      >
+      <span style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-top: 0.25rem;">
+        Uma breve descrição para você e seu chefe lembrarem do motivo caso surja qualquer dúvida.
+      </span>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 1.25rem;">
+      <label for="status" class="form-label">Situação do Vale <span style="color: var(--danger);">*</span></label>
+      <select id="status" name="status" class="form-control" required>
+        <option value="pendente" {% if form_data.status == 'pendente' %}selected{% endif %}>
+          🟡 Pendente (Ainda NÃO descontado do pagamento pelo chefe)
+        </option>
+        <option value="descontado" {% if form_data.status == 'descontado' %}selected{% endif %}>
+          🟢 Descontado (Já abatido no holerite / pago)
+        </option>
+      </select>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 1.5rem;">
+      <label for="observation" class="form-label">Observações Adicionais (Opcional)</label>
+      <textarea 
+        id="observation" 
+        name="observation" 
+        class="form-control" 
+        rows="3" 
+        placeholder="Anote aqui outros detalhes, como: 'Autorizado pelo chefe Carlos', número de comprovante, ou acordo de parcelamento..."
+      >{{ form_data.observation }}</textarea>
+    </div>
+
+    <!-- Botões de Ação -->
+    <div style="display: flex; gap: 0.75rem; justify-content: flex-end; align-items: center; border-top: 1px solid var(--border-color); padding-top: 1.25rem; flex-wrap: wrap;">
+      <a href="{{ url_for('advances_view') }}" class="btn btn-secondary">
+        Cancelar
+      </a>
+      <button type="submit" class="btn btn-primary" id="btn-save-advance" style="padding: 0.65rem 1.5rem; font-weight: 700; font-size: 1rem;">
+        💾 {% if is_edit %}Atualizar Adiantamento{% else %}Salvar Registro de Vale{% endif %}
+      </button>
+    </div>
+
+  </form>
+</div>
+{% endblock %}

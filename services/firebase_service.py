@@ -265,31 +265,79 @@ def delete_work_day_from_firebase(user_id, date):
         logger.error(f"Erro ao deletar jornada no Firebase: {e}")
         return False
 
+def sync_advance_to_firebase(user_id, adv_id, adv_data):
+    """
+    Sincroniza um adiantamento/vale salarial com a nuvem Firestore.
+    """
+    base_url, api_key = get_base_url()
+    if not base_url:
+        return False
+    doc_id = f"user_{user_id}_{adv_id}"
+    payload = {
+        'userId': str(user_id),
+        'advanceId': int(adv_id),
+        'date': str(adv_data.get('date', '')),
+        'amount': float(adv_data.get('amount', 0.0) or 0.0),
+        'description': str(adv_data.get('description', '') or ''),
+        'paymentMethod': str(adv_data.get('payment_method', 'pix') or 'pix'),
+        'status': str(adv_data.get('status', 'pendente') or 'pendente'),
+        'referenceMonth': str(adv_data.get('reference_month', '') or ''),
+        'observation': str(adv_data.get('observation', '') or ''),
+        'updatedAt': datetime.utcnow().isoformat()
+    }
+    body = {'fields': {k: to_firestore_value(v) for k, v in payload.items()}}
+    try:
+        r = requests.patch(
+            f"{base_url}/advances/{doc_id}?key={api_key}",
+            json=body,
+            timeout=5
+        )
+        return r.status_code in (200, 201)
+    except Exception as e:
+        logger.error(f"Erro ao salvar adiantamento no Firebase: {e}")
+        return False
+
+def delete_advance_from_firebase(user_id, adv_id):
+    """
+    Exclui um adiantamento/vale salarial da nuvem Firestore.
+    """
+    base_url, api_key = get_base_url()
+    if not base_url:
+        return False
+    doc_id = f"user_{user_id}_{adv_id}"
+    try:
+        r = requests.delete(f"{base_url}/advances/{doc_id}?key={api_key}", timeout=5)
+        return r.status_code in (200, 204)
+    except Exception as e:
+        logger.error(f"Erro ao deletar adiantamento no Firebase: {e}")
+        return False
+
 def reset_user_data_in_firebase(user_id):
     base_url, api_key = get_base_url()
     if not base_url:
         return False
     try:
-        query_body = {
-            'structuredQuery': {
-                'from': [{'collectionId': 'work_days'}],
-                'where': {
-                    'fieldFilter': {
-                        'field': {'fieldPath': 'userId'},
-                        'op': 'EQUAL',
-                        'value': {'stringValue': str(user_id)}
+        for coll in ('work_days', 'advances'):
+            query_body = {
+                'structuredQuery': {
+                    'from': [{'collectionId': coll}],
+                    'where': {
+                        'fieldFilter': {
+                            'field': {'fieldPath': 'userId'},
+                            'op': 'EQUAL',
+                            'value': {'stringValue': str(user_id)}
+                        }
                     }
                 }
             }
-        }
-        r = requests.post(f"{base_url}:runQuery?key={api_key}", json=query_body, timeout=8)
-        if r.status_code == 200:
-            items = r.json()
-            for item in items:
-                doc = item.get('document')
-                if doc and 'name' in doc:
-                    doc_path = doc['name'].split('/documents/')[-1]
-                    requests.delete(f"{base_url}/{doc_path}?key={api_key}", timeout=4)
+            r = requests.post(f"{base_url}:runQuery?key={api_key}", json=query_body, timeout=8)
+            if r.status_code == 200:
+                items = r.json()
+                for item in items:
+                    doc = item.get('document')
+                    if doc and 'name' in doc:
+                        doc_path = doc['name'].split('/documents/')[-1]
+                        requests.delete(f"{base_url}/{doc_path}?key={api_key}", timeout=4)
         return True
     except Exception as e:
         logger.error(f"Erro ao resetar dados no Firebase: {e}")
@@ -297,7 +345,7 @@ def reset_user_data_in_firebase(user_id):
 
 def sync_all_local_to_firebase(user_id, conn):
     """
-    Exporta todos os registros, configurações e perfil do usuário atual para a nuvem Firestore.
+    Exporta todos os registros, configurações, perfil e adiantamentos do usuário atual para a nuvem Firestore.
     """
     base_url, api_key = get_base_url()
     if not base_url:
@@ -340,7 +388,15 @@ def sync_all_local_to_firebase(user_id, conn):
             )
             count += 1
 
-        return True, f"Perfil, configurações e {count} dias sincronizados com o Firestore!"
+        # 3. Sync all Advances
+        cursor.execute("SELECT * FROM advances WHERE user_id = ? ORDER BY date ASC", (user_id,))
+        advances = cursor.fetchall()
+        adv_count = 0
+        for a in advances:
+            sync_advance_to_firebase(user_id, a['id'], dict(a))
+            adv_count += 1
+
+        return True, f"Perfil, configurações, {count} dias e {adv_count} adiantamentos sincronizados com o Firestore!"
     except Exception as e:
         logger.error(f"Erro na sincronização completa: {e}")
         return False, f"Falha na sincronização: {str(e)}"
@@ -374,7 +430,7 @@ def pull_from_firebase(user_id, conn):
             }
         }
 
-        # Busca paralela: perfil, configurações e jornadas simultaneamente
+        # Busca paralela: perfil, configurações, jornadas e adiantamentos simultaneamente
         def _fetch_profile():
             try:
                 return pull_user_profile_from_firebase(user_id=user_id, email=u_email)
@@ -393,14 +449,35 @@ def pull_from_firebase(user_id, conn):
             except Exception:
                 return None
 
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        query_adv_body = {
+            'structuredQuery': {
+                'from': [{'collectionId': 'advances'}],
+                'where': {
+                    'fieldFilter': {
+                        'field': {'fieldPath': 'userId'},
+                        'op': 'EQUAL',
+                        'value': {'stringValue': str(user_id)}
+                    }
+                }
+            }
+        }
+
+        def _fetch_advances():
+            try:
+                return requests.post(f"{base_url}:runQuery?key={api_key}", json=query_adv_body, timeout=8)
+            except Exception:
+                return None
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
             fut_prof = executor.submit(_fetch_profile)
             fut_settings = executor.submit(_fetch_settings)
             fut_days = executor.submit(_fetch_days)
+            fut_adv = executor.submit(_fetch_advances)
 
             prof = fut_prof.result()
             r_set = fut_settings.result()
             r_q = fut_days.result()
+            r_adv = fut_adv.result()
 
         # 0. Atualiza Perfil
         if prof and (prof.get('name') or prof.get('cpf')):
@@ -480,8 +557,49 @@ def pull_from_firebase(user_id, conn):
 
                 restored_days += 1
 
+        # 3. Atualiza Advances (Adiantamentos)
+        restored_advances = 0
+        if r_adv and r_adv.status_code == 200:
+            items_adv = r_adv.json()
+            for item in items_adv:
+                doc = item.get('document')
+                if not doc:
+                    continue
+                fields = doc.get('fields', {})
+                a_id = int(fields.get('advanceId', {}).get('integerValue', 0))
+                a_date = fields.get('date', {}).get('stringValue', '')
+                a_amount = float(fields.get('amount', {}).get('doubleValue', 0.0) or fields.get('amount', {}).get('integerValue', 0.0))
+                a_desc = fields.get('description', {}).get('stringValue', '')
+                a_pm = fields.get('paymentMethod', {}).get('stringValue', 'pix')
+                a_status = fields.get('status', {}).get('stringValue', 'pendente')
+                a_ref = fields.get('referenceMonth', {}).get('stringValue', '')
+                a_obs = fields.get('observation', {}).get('stringValue', '')
+                if not a_date or a_amount <= 0:
+                    continue
+
+                if a_id > 0:
+                    cursor.execute("SELECT id FROM advances WHERE id = ?", (a_id,))
+                    if cursor.fetchone():
+                        cursor.execute("""
+                            UPDATE advances 
+                            SET date = ?, amount = ?, description = ?, payment_method = ?,
+                                status = ?, reference_month = ?, observation = ?, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ? AND user_id = ?
+                        """, (a_date, a_amount, a_desc, a_pm, a_status, a_ref, a_obs, a_id, user_id))
+                    else:
+                        cursor.execute("""
+                            INSERT INTO advances (id, user_id, date, amount, description, payment_method, status, reference_month, observation, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        """, (a_id, user_id, a_date, a_amount, a_desc, a_pm, a_status, a_ref, a_obs))
+                else:
+                    cursor.execute("""
+                        INSERT INTO advances (user_id, date, amount, description, payment_method, status, reference_month, observation, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """, (user_id, a_date, a_amount, a_desc, a_pm, a_status, a_ref, a_obs))
+                restored_advances += 1
+
         conn.commit()
-        return True, f"{restored_days} registros recuperados da nuvem Firebase!"
+        return True, f"{restored_days} dias e {restored_advances} adiantamentos recuperados da nuvem Firebase!"
     except Exception as e:
         logger.error(f"Erro ao restaurar do Firebase: {e}")
         return False, f"Falha ao restaurar: {str(e)}"

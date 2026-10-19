@@ -233,5 +233,81 @@
     {% endif %}
   </div>
 
+  <!-- Adiantamentos e Vales deste Dia -->
+  <div class="table-card" style="margin-top: 1.5rem;">
+    <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+      <div>
+        <h3 style="font-size: 1rem; font-weight: 800; color: var(--text-main); margin: 0; display: flex; align-items: center; gap: 0.4rem;">
+          <span>💵</span>
+          <span>Vales e Adiantamentos deste Dia ({{ date_fmt }})</span>
+        </h3>
+        <span style="font-size: 0.82rem; color: var(--text-muted);">
+          Valores pegos com o chefe nesta data específica.
+        </span>
+      </div>
+      <a href="{{ url_for('advance_create', date=date_str) }}" class="btn btn-primary btn-sm" style="font-weight: 700;">
+        + Registrar Vale nesta Data
+      </a>
+    </div>
+
+    {% if day_advances %}
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Valor (R$)</th>
+              <th>Motivo / Descrição</th>
+              <th>Forma</th>
+              <th>Situação</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in day_advances %}
+              <tr>
+                <td>
+                  <span style="font-size: 1.1rem; font-weight: 800; color: {% if a.status == 'pendente' %}#b45309{% else %}#166534{% endif %};">
+                    {{ a.amount_fmt }}
+                  </span>
+                </td>
+                <td>{{ a.description or 'Adiantamento salarial' }}</td>
+                <td>
+                  <span style="font-size: 0.8rem; padding: 2px 6px; background: #f1f5f9; border-radius: 4px; font-weight: 600;">
+                    {% if a.payment_method == 'pix' %}💠 PIX
+                    {% elif a.payment_method == 'dinheiro' %}💵 Dinheiro
+                    {% elif a.payment_method == 'transferencia' %}🏦 Transferência
+                    {% else %}📄 {{ a.payment_method|capitalize }}{% endif %}
+                  </span>
+                </td>
+                <td>
+                  {% if a.status == 'pendente' %}
+                    <span class="status-badge" style="background: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-weight: 700;">
+                      🟡 Pendente
+                    </span>
+                  {% else %}
+                    <span class="status-badge" style="background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; font-weight: 700;">
+                      🟢 Descontado
+                    </span>
+                  {% endif %}
+                </td>
+                <td>
+                  <div class="table-actions">
+                    <a href="{{ url_for('advance_edit', adv_id=a.id) }}" class="btn btn-secondary btn-sm">
+                      Editar
+                    </a>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div style="padding: 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.88rem;">
+        Nenhum adiantamento foi pego nesta data. Se você pegou um vale com seu chefe hoje, clique em <strong>+ Registrar Vale nesta Data</strong> acima.
+      </div>
+    {% endif %}
+  </div>
+
 </div>
 {% endblock %}

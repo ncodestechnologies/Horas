@@ -12,6 +12,10 @@
     <a href="{{ url_for('confirm_delete', day_id=day.id) }}" class="btn btn-danger btn-sm" id="btn-delete-record">
       🗑 Excluir Registro
     </a>
+  {% else %}
+    <a href="{{ url_for('advance_create', date=form_data.date) }}" class="btn btn-secondary btn-sm" id="btn-shortcut-advance" style="display: inline-flex; align-items: center; gap: 0.35rem;">
+      💵 Pegou Vale com o Chefe? Registrar Vale
+    </a>
   {% endif %}
 </div>
 

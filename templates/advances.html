@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+
+{% block title %}Adiantamentos e Vales{% endblock %}
+
+{% block content %}
+<!-- Top Header com Botão de Registro -->
+<div class="page-header" style="margin-bottom: 1.5rem;">
+  <div>
+    <h1 class="page-title">💵 Adiantamentos e Vales</h1>
+    <p class="page-subtitle">
+      Histórico completo de vales pegos com seu chefe para você conferir com precisão na hora do pagamento.
+    </p>
+  </div>
+  <a href="{{ url_for('advance_create') }}" class="btn btn-hero" id="btn-new-advance" style="font-weight: 700;">
+    + REGISTRAR ADIANTAMENTO
+  </a>
+</div>
+
+<!-- Cards de Resumo Financeiro de Adiantamentos -->
+<div class="stats-grid" style="margin-bottom: 2rem;">
+  <div class="stat-card" id="card-adv-total">
+    <div class="stat-label">Total de Vales Registrados</div>
+    <div class="stat-value" style="color: #1e3a8a;">{{ stats.total_amount_fmt }}</div>
+    <div class="stat-subtext">{{ stats.total_count }} vale(s) contabilizado(s)</div>
+  </div>
+
+  <div class="stat-card" id="card-adv-pending" style="border-left: 4px solid #f59e0b; background: #fffdf5;">
+    <div class="stat-label" style="color: #b45309; font-weight: 700;">⚠️ Pendente de Desconto</div>
+    <div class="stat-value" style="color: #d97706;">{{ stats.pending_amount_fmt }}</div>
+    <div class="stat-subtext" style="color: #b45309;">
+      {{ stats.pending_count }} vale(s) a descontar no salário pelo chefe
+    </div>
+  </div>
+
+  <div class="stat-card" id="card-adv-deducted" style="border-left: 4px solid #10b981; background: #f0fdf4;">
+    <div class="stat-label" style="color: #047857; font-weight: 700;">✓ Já Descontados</div>
+    <div class="stat-value" style="color: #059669;">{{ stats.deducted_amount_fmt }}</div>
+    <div class="stat-subtext" style="color: #047857;">
+      {{ stats.deducted_count }} vale(s) já abatidos no holerite
+    </div>
+  </div>
+</div>
+
+<!-- Barra de Filtros e Busca de Vales -->
+<div class="filter-bar" style="background: #ffffff; padding: 1.25rem 1.5rem; border-radius: 12px; border: 1px solid var(--border-color); margin-bottom: 1.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+  <form method="GET" action="{{ url_for('advances_view') }}" style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; margin: 0;">
+    
+    <div class="filter-group" style="margin: 0; min-width: 170px;">
+      <label for="filter-month" style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">
+        Mês de Referência
+      </label>
+      <select id="filter-month" name="month" class="form-control" style="padding: 0.45rem 0.75rem; font-weight: 600;">
+        <option value="todos" {% if selected_month == 'todos' %}selected{% endif %}>Todos os Meses</option>
+        {% for ym, label in month_options %}
+          <option value="{{ ym }}" {% if selected_month == ym %}selected{% endif %}>
+            {{ label }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="filter-group" style="margin: 0; min-width: 160px;">
+      <label for="filter-status" style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">
+        Situação
+      </label>
+      <select id="filter-status" name="status" class="form-control" style="padding: 0.45rem 0.75rem;">
+        <option value="todos" {% if selected_status == 'todos' %}selected{% endif %}>Todas as Situações</option>
+        <option value="pendente" {% if selected_status == 'pendente' %}selected{% endif %}>Apenas Pendentes (A descontar)</option>
+        <option value="descontado" {% if selected_status == 'descontado' %}selected{% endif %}>Apenas Descontados</option>
+      </select>
+    </div>
+
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+      <button type="submit" class="btn btn-primary btn-sm" id="btn-filter-advances" style="height: 38px; font-weight: 700; padding: 0 1.25rem;">
+        Filtrar
+      </button>
+      {% if selected_month != 'todos' or selected_status != 'todos' %}
+        <a href="{{ url_for('advances_view') }}" class="btn btn-secondary btn-sm" style="height: 38px; display: inline-flex; align-items: center;">
+          Limpar Filtro
+        </a>
+      {% endif %}
+    </div>
+
+  </form>
+</div>
+
+<!-- Tabela de Adiantamentos Registrados -->
+<div class="table-card">
+  <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+    <div>
+      <h3 style="font-size: 1.1rem; font-weight: 800; color: var(--text-main); margin: 0;">
+        Registros de Vales Encontrados
+      </h3>
+      <span style="font-size: 0.84rem; color: var(--text-muted);">
+        {% if selected_month != 'todos' %}
+          Filtrado pelo mês de referência selecionado.
+        {% else %}
+          Exibindo todos os adiantamentos já registrados.
+        {% endif %}
+      </span>
+    </div>
+    <span style="font-size: 0.85rem; font-weight: 700; background: #eff6ff; color: #1e40af; padding: 0.35rem 0.85rem; border-radius: 999px; border: 1px solid #bfdbfe;">
+      {{ advances|length }} registro(s)
+    </span>
+  </div>
+
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Data do Vale</th>
+          <th>Mês de Desconto</th>
+          <th>Valor (R$)</th>
+          <th>Motivo / Descrição</th>
+          <th>Forma</th>
+          <th>Situação</th>
+          <th>Alternar Status</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if advances %}
+          {% for a in advances %}
+            <tr style="{% if a.status == 'pendente' %}background-color: #fffdf5;{% endif %}">
+              <td>
+                <div style="font-weight: 700; color: var(--text-main);">
+                  {{ a.date_fmt }}
+                </div>
+                <span style="font-size: 0.76rem; color: var(--text-muted); display: block;">
+                  {{ a.weekday_name }}
+                </span>
+              </td>
+              <td>
+                <span style="font-size: 0.88rem; font-weight: 600; color: #334155;">
+                  {{ a.reference_month_fmt }}
+                </span>
+              </td>
+              <td>
+                <span style="font-size: 1.15rem; font-weight: 800; color: {% if a.status == 'pendente' %}#b45309{% else %}#166534{% endif %}; white-space: nowrap;">
+                  {{ a.amount_fmt }}
+                </span>
+              </td>
+              <td>
+                <div style="font-weight: 600; color: var(--text-main);">
+                  {{ a.description or 'Adiantamento salarial' }}
+                </div>
+                {% if a.observation %}
+                  <span style="font-size: 0.78rem; color: var(--text-muted); display: block; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ a.observation }}">
+                    📝 {{ a.observation }}
+                  </span>
+                {% endif %}
+              </td>
+              <td>
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.82rem; padding: 0.25rem 0.55rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-weight: 600;">
+                  {% if a.payment_method == 'pix' %}
+                    💠 PIX
+                  {% elif a.payment_method == 'dinheiro' %}
+                    💵 Dinheiro
+                  {% elif a.payment_method == 'transferencia' %}
+                    🏦 Transferência
+                  {% else %}
+                    📄 {{ a.payment_method|capitalize }}
+                  {% endif %}
+                </span>
+              </td>
+              <td>
+                {% if a.status == 'pendente' %}
+                  <span class="status-badge" style="background: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-weight: 700;" title="Ainda não foi descontado no pagamento">
+                    🟡 Pendente
+                  </span>
+                {% else %}
+                  <span class="status-badge" style="background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; font-weight: 700;" title="Já descontado no holerite">
+                    🟢 Descontado
+                  </span>
+                {% endif %}
+              </td>
+              <td>
+                <form method="POST" action="{{ url_for('advance_toggle_status', adv_id=a.id) }}" style="margin: 0; display: inline;">
+                  {% if a.status == 'pendente' %}
+                    <button type="submit" class="btn btn-outline-success btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; font-weight: 700; white-space: nowrap;" title="Marcar como já descontado pelo chefe">
+                      ✓ Marcar Descontado
+                    </button>
+                  {% else %}
+                    <button type="submit" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; white-space: nowrap;" title="Reabrir como pendente">
+                      ↩ Reabrir Pendente
+                    </button>
+                  {% endif %}
+                </form>
+              </td>
+              <td>
+                <div class="table-actions" style="display: flex; gap: 0.4rem; align-items: center;">
+                  <a href="{{ url_for('advance_edit', adv_id=a.id) }}" class="btn btn-secondary btn-sm" title="Editar este adiantamento">
+                    ✏️ Editar
+                  </a>
+                  <form method="POST" action="{{ url_for('advance_delete', adv_id=a.id) }}" style="margin: 0;" onsubmit="return confirm('Deseja realmente excluir este registro de adiantamento de {{ a.amount_fmt }}?');">
+                    <button type="submit" class="btn btn-danger btn-sm" title="Excluir adiantamento">
+                      🗑
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="8" style="text-align: center; padding: 3rem 1.5rem; color: var(--text-muted);">
+              <div style="font-size: 2.2rem; margin-bottom: 0.5rem;">💵</div>
+              <p style="font-size: 1.05rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.35rem;">
+                Nenhum adiantamento encontrado para os filtros selecionados
+              </p>
+              <p style="font-size: 0.88rem; margin-bottom: 1.25rem;">
+                Pegou algum dinheiro ou PIX adiantado com seu chefe? Registre agora para manter tudo anotado!
+              </p>
+              <a href="{{ url_for('advance_create') }}" class="btn btn-primary btn-sm" style="font-weight: 700; padding: 0.5rem 1.25rem;">
+                + Registrar Adiantamento / Vale
+              </a>
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Dica Informativa para o Trabalhador -->
+<div style="margin-top: 1.5rem; padding: 1.25rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; display: flex; align-items: flex-start; gap: 0.75rem;">
+  <span style="font-size: 1.4rem;">💡</span>
+  <div style="font-size: 0.86rem; color: #475569; line-height: 1.5;">
+    <strong>Como conferir com o chefe no fim do mês:</strong><br>
+    Ao abrir a tela de <strong>Relatórios</strong>, você pode visualizar o mês fechado com o somatório de horas e o total de vales pegos. Assim, na hora do acerto salarial, você confere exatamente os valores combinados e evita qualquer cobrança indevida ou esquecimento.
+  </div>
+</div>
+{% endblock %}

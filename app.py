@@ -69,7 +69,9 @@ from services.firebase_service import (
     sync_all_local_to_firebase,
     pull_from_firebase,
     sync_user_profile_to_firebase,
-    pull_user_profile_from_firebase
+    pull_user_profile_from_firebase,
+    sync_advance_to_firebase,
+    delete_advance_from_firebase
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -233,6 +235,41 @@ def inject_auth_info():
         except Exception:
             token = ''
     return {'auth_token': token}
+
+def format_currency_brl(val):
+    try:
+        f = float(val or 0.0)
+        return f"R$ {f:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return "R$ 0,00"
+
+def parse_currency_brl(val_str):
+    if not val_str:
+        return 0.0
+    s = str(val_str).replace('R$', '').replace(' ', '').strip()
+    if ',' in s and '.' in s:
+        s = s.replace('.', '').replace(',', '.')
+    elif ',' in s:
+        s = s.replace(',', '.')
+    try:
+        return max(0.0, float(s))
+    except (ValueError, TypeError):
+        return 0.0
+
+def get_month_options(center_year=None, center_month=None):
+    now = datetime.now()
+    cy = center_year or now.year
+    options = []
+    for y in [cy - 1, cy, cy + 1]:
+        for m in range(1, 13):
+            ym = f"{y}-{m:02d}"
+            label = f"{MONTH_NAMES_PT[m]}/{y}"
+            options.append((ym, label))
+    return options
+
+@app.template_filter('currency_brl')
+def currency_brl_filter(val):
+    return format_currency_brl(val)
 
 @app.after_request
 def after_req(response):
@@ -435,7 +472,7 @@ def login():
             if not user:
                 flash(f"O e-mail '{email}' não foi encontrado. Se ainda não possui cadastro, clique em 'Criar Nova Conta' abaixo.", "danger")
             else:
-                flash("Senha incorreta. Certifique-se de digitar a senha com as letras maiúsculas e minúsculas corretas. A senha do administrador é Taijou13.", "danger")
+                flash("Senha incorreta. Por favor, verifique a senha digitada e tente novamente.", "danger")
 
     if session.get('user_id') and not request.args.get('force'):
         return redirect(url_for('dashboard'))
@@ -639,6 +676,31 @@ def dashboard():
 
     bank_breakdown = get_bank_debit_breakdown(user_id)
 
+    # Resumo de Vales e Adiantamentos do Mês Corrente
+    curr_month_ref = f"{now.year}-{now.month:02d}"
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 
+            COALESCE(SUM(amount), 0) as total,
+            COALESCE(SUM(CASE WHEN status = 'pendente' THEN amount ELSE 0 END), 0) as total_pendente,
+            COALESCE(SUM(CASE WHEN status = 'pendente' THEN 1 ELSE 0 END), 0) as count_pendente,
+            COUNT(*) as total_count
+        FROM advances
+        WHERE user_id = ? AND (reference_month = ? OR (reference_month IS NULL AND strftime('%Y-%m', date) = ?))
+    """, (user_id, curr_month_ref, curr_month_ref))
+    adv_row = cursor.fetchone()
+    conn.close()
+
+    adv_summary = {
+        'month_total_val': float(adv_row['total'] or 0.0) if adv_row else 0.0,
+        'month_total_fmt': format_currency_brl(adv_row['total'] if adv_row else 0.0),
+        'month_pending_val': float(adv_row['total_pendente'] or 0.0) if adv_row else 0.0,
+        'month_pending_fmt': format_currency_brl(adv_row['total_pendente'] if adv_row else 0.0),
+        'month_pending_count': int(adv_row['count_pendente'] or 0) if adv_row else 0,
+        'month_count': int(adv_row['total_count'] or 0) if adv_row else 0
+    }
+
     return render_template(
         'dashboard.html',
         active_page='dashboard',
@@ -650,7 +712,8 @@ def dashboard():
         cumulative_bank_mins=cumulative_bank_mins,
         cumulative_bank_str=cumulative_bank_str,
         bank_breakdown=bank_breakdown,
-        recent_days=recent_days
+        recent_days=recent_days,
+        adv_summary=adv_summary
     )
 
 # ==============================================================================
@@ -1083,6 +1146,21 @@ def calendar_view():
     days_data, _ = get_days_data_in_range(user_id, start_date, end_date)
     days_lookup = {d['date']: d for d in days_data}
 
+    # Busca adiantamentos do mês para exibição nos cards do calendário
+    conn_adv = get_db()
+    c_adv = conn_adv.cursor()
+    c_adv.execute("""
+        SELECT date, amount FROM advances
+        WHERE user_id = ? AND date BETWEEN ? AND ?
+    """, (user_id, start_date, end_date))
+    adv_rows = c_adv.fetchall()
+    conn_adv.close()
+
+    adv_by_day = {}
+    for ar in adv_rows:
+        ad_date = ar['date']
+        adv_by_day[ad_date] = adv_by_day.get(ad_date, 0.0) + float(ar['amount'] or 0.0)
+
     # Resumo do mês do calendário e saldo acumulado total do banco de horas
     month_summary = generate_report_summary(user_id, start_date, end_date)
     cumulative_bank_mins, cumulative_bank_str = get_cumulative_bank_balance(user_id)
@@ -1117,6 +1195,8 @@ def calendar_view():
                     total_worked_str = '-'
                     balance_str = '00:00'
 
+                d_adv_val = adv_by_day.get(date_str, 0.0)
+
                 week_days.append({
                     'day_number': day_num,
                     'date_str': date_str,
@@ -1125,7 +1205,9 @@ def calendar_view():
                     'status': status,
                     'has_record': has_record,
                     'total_worked_str': total_worked_str,
-                    'balance_str': balance_str
+                    'balance_str': balance_str,
+                    'advance_total': d_adv_val,
+                    'advance_total_fmt': format_currency_brl(d_adv_val)
                 })
         month_weeks.append(week_days)
 
@@ -1192,6 +1274,28 @@ def day_detail_view(date_str):
         periods = []
         observation = ''
 
+    # Busca adiantamentos registrados nesta data específica
+    conn_dadv = get_db()
+    c_dadv = conn_dadv.cursor()
+    c_dadv.execute("""
+        SELECT * FROM advances WHERE user_id = ? AND date = ? ORDER BY id ASC
+    """, (user_id, date_str))
+    d_adv_rows = c_dadv.fetchall()
+    conn_dadv.close()
+
+    day_advances = []
+    for da in d_adv_rows:
+        day_advances.append({
+            'id': da['id'],
+            'date': da['date'],
+            'amount': float(da['amount'] or 0.0),
+            'amount_fmt': format_currency_brl(da['amount']),
+            'description': da['description'],
+            'payment_method': da['payment_method'],
+            'status': da['status'],
+            'observation': da['observation']
+        })
+
     return render_template(
         'day_detail.html',
         active_page='calendar',
@@ -1204,7 +1308,8 @@ def day_detail_view(date_str):
         day=day,
         metrics=metrics,
         periods=periods,
-        observation=observation
+        observation=observation,
+        day_advances=day_advances
     )
 
 # ==============================================================================
@@ -1381,6 +1486,56 @@ def reports_view():
         available_years.append(info['year'])
         available_years.sort()
 
+    # Adiantamentos e vales pegos no mês de referência selecionado
+    ref_month = f"{info['year']}-{info['month']:02d}"
+    conn_rep_adv = get_db()
+    c_rep_adv = conn_rep_adv.cursor()
+    c_rep_adv.execute("""
+        SELECT * FROM advances
+        WHERE user_id = ? AND (reference_month = ? OR (reference_month IS NULL AND strftime('%Y-%m', date) = ?))
+        ORDER BY date ASC
+    """, (user_id, ref_month, ref_month))
+    raw_advs = c_rep_adv.fetchall()
+    conn_rep_adv.close()
+
+    month_advances = []
+    tot_val = 0.0
+    pend_val = 0.0
+    pend_cnt = 0
+    ded_val = 0.0
+
+    for a in raw_advs:
+        val = float(a['amount'] or 0.0)
+        tot_val += val
+        if a['status'] == 'pendente':
+            pend_val += val
+            pend_cnt += 1
+        else:
+            ded_val += val
+
+        d_parts = a['date'].split('-')
+        d_fmt = f"{d_parts[2]}/{d_parts[1]}/{d_parts[0]}" if len(d_parts) == 3 else a['date']
+
+        month_advances.append({
+            'id': a['id'],
+            'date': a['date'],
+            'date_fmt': d_fmt,
+            'amount': val,
+            'amount_fmt': format_currency_brl(val),
+            'description': a['description'],
+            'payment_method': a['payment_method'],
+            'status': a['status'],
+            'observation': a['observation']
+        })
+
+    month_adv_stats = {
+        'total_fmt': format_currency_brl(tot_val),
+        'pending_fmt': format_currency_brl(pend_val),
+        'pending_count': pend_cnt,
+        'deducted_fmt': format_currency_brl(ded_val),
+        'count': len(month_advances)
+    }
+
     return render_template(
         'reports.html',
         active_page='reports',
@@ -1402,7 +1557,9 @@ def reports_view():
         cumulative_bank_str=cumulative_bank_str,
         bank_breakdown=bank_breakdown,
         current_year=now.year,
-        current_month=now.month
+        current_month=now.month,
+        month_advances=month_advances,
+        month_adv_stats=month_adv_stats
     )
 
 @app.route('/relatorios/exportar/csv')
@@ -1449,6 +1606,351 @@ def export_pdf():
         as_attachment=True,
         download_name=filename
     )
+
+# ==============================================================================
+# ADIANTAMENTOS E VALES COM O CHEFE
+# ==============================================================================
+
+@app.route('/adiantamentos')
+@login_required
+def advances_view():
+    user_id = session['user_id']
+    month_param = (request.args.get('month') or 'todos').strip()
+    status_param = (request.args.get('status') or 'todos').strip()
+
+    month_options = get_month_options()
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    query = "SELECT * FROM advances WHERE user_id = ?"
+    params = [user_id]
+
+    if month_param != 'todos':
+        query += " AND (reference_month = ? OR (reference_month IS NULL AND strftime('%Y-%m', date) = ?))"
+        params.extend([month_param, month_param])
+
+    if status_param in ('pendente', 'descontado'):
+        query += " AND status = ?"
+        params.append(status_param)
+
+    query += " ORDER BY date DESC, id DESC"
+    cursor.execute(query, tuple(params))
+    rows = cursor.fetchall()
+
+    # Estatísticas consolidadas de vales
+    cursor.execute("""
+        SELECT 
+            COALESCE(SUM(amount), 0) as total,
+            COALESCE(SUM(CASE WHEN status = 'pendente' THEN amount ELSE 0 END), 0) as total_pendente,
+            COALESCE(SUM(CASE WHEN status = 'descontado' THEN amount ELSE 0 END), 0) as total_descontado,
+            COUNT(*) as count_total,
+            COALESCE(SUM(CASE WHEN status = 'pendente' THEN 1 ELSE 0 END), 0) as count_pendente,
+            COALESCE(SUM(CASE WHEN status = 'descontado' THEN 1 ELSE 0 END), 0) as count_descontado
+        FROM advances WHERE user_id = ?
+    """, (user_id,))
+    stats_row = cursor.fetchone()
+    conn.close()
+
+    advances_list = []
+    for r in rows:
+        val = float(r['amount'] or 0.0)
+        d_parts = r['date'].split('-')
+        d_fmt = f"{d_parts[2]}/{d_parts[1]}/{d_parts[0]}" if len(d_parts) == 3 else r['date']
+        try:
+            dt = datetime.strptime(r['date'], '%Y-%m-%d')
+            w_name = WEEKDAY_NAMES_PT[dt.weekday()]
+        except Exception:
+            w_name = ''
+
+        ref_fmt = ''
+        if r['reference_month'] and '-' in r['reference_month']:
+            try:
+                ry, rm = r['reference_month'].split('-')
+                ref_fmt = f"{MONTH_NAMES_PT.get(int(rm), rm)}/{ry}"
+            except Exception:
+                ref_fmt = r['reference_month']
+        else:
+            ref_fmt = '—'
+
+        advances_list.append({
+            'id': r['id'],
+            'date': r['date'],
+            'date_fmt': d_fmt,
+            'weekday_name': w_name,
+            'amount': val,
+            'amount_fmt': format_currency_brl(val),
+            'description': r['description'],
+            'payment_method': r['payment_method'],
+            'status': r['status'],
+            'reference_month': r['reference_month'],
+            'reference_month_fmt': ref_fmt,
+            'observation': r['observation']
+        })
+
+    stats = {
+        'total_amount_fmt': format_currency_brl(stats_row['total'] if stats_row else 0.0),
+        'total_count': int(stats_row['count_total'] if stats_row else 0),
+        'pending_amount_fmt': format_currency_brl(stats_row['total_pendente'] if stats_row else 0.0),
+        'pending_count': int(stats_row['count_pendente'] if stats_row else 0),
+        'deducted_amount_fmt': format_currency_brl(stats_row['total_descontado'] if stats_row else 0.0),
+        'deducted_count': int(stats_row['count_descontado'] if stats_row else 0)
+    }
+
+    return render_template(
+        'advances.html',
+        active_page='advances',
+        advances=advances_list,
+        stats=stats,
+        selected_month=month_param,
+        selected_status=status_param,
+        month_options=month_options
+    )
+
+@app.route('/adiantamentos/novo', methods=['GET', 'POST'])
+@login_required
+def advance_create():
+    user_id = session['user_id']
+    month_options = get_month_options()
+    now = datetime.now()
+
+    if request.method == 'POST':
+        date = (request.form.get('date') or '').strip()
+        amount_raw = (request.form.get('amount') or '').strip()
+        reference_month = (request.form.get('reference_month') or '').strip()
+        description = (request.form.get('description') or '').strip()
+        payment_method = (request.form.get('payment_method') or 'pix').strip()
+        status = (request.form.get('status') or 'pendente').strip()
+        observation = (request.form.get('observation') or '').strip()
+
+        amount = parse_currency_brl(amount_raw)
+
+        if not date:
+            flash("Informe a data em que você pegou o adiantamento.", "danger")
+            form_data = {
+                'date': date or now.strftime('%Y-%m-%d'),
+                'amount': amount_raw,
+                'reference_month': reference_month or now.strftime('%Y-%m'),
+                'description': description,
+                'payment_method': payment_method,
+                'status': status,
+                'observation': observation
+            }
+            return render_template('advance_form.html', active_page='advances', is_edit=False, form_data=form_data, month_options=month_options)
+
+        if amount <= 0:
+            flash("Informe um valor válido maior que zero para o adiantamento (ex: 150,00).", "danger")
+            form_data = {
+                'date': date,
+                'amount': amount_raw,
+                'reference_month': reference_month or now.strftime('%Y-%m'),
+                'description': description,
+                'payment_method': payment_method,
+                'status': status,
+                'observation': observation
+            }
+            return render_template('advance_form.html', active_page='advances', is_edit=False, form_data=form_data, month_options=month_options)
+
+        if not reference_month:
+            reference_month = date[:7] if len(date) >= 7 else now.strftime('%Y-%m')
+
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO advances (user_id, date, amount, description, payment_method, status, reference_month, observation, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (user_id, date, amount, description, payment_method, status, reference_month, observation))
+        adv_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+
+        # Sincronização imediata com Firestore
+        sync_advance_to_firebase(user_id, adv_id, {
+            'date': date,
+            'amount': amount,
+            'description': description,
+            'payment_method': payment_method,
+            'status': status,
+            'reference_month': reference_month,
+            'observation': observation
+        })
+
+        flash(f"Adiantamento de {format_currency_brl(amount)} registrado com sucesso!", "success")
+        return redirect(url_for('advances_view'))
+
+    # GET
+    default_date = request.args.get('date') or now.strftime('%Y-%m-%d')
+    default_ref_month = request.args.get('ref_month') or default_date[:7]
+
+    form_data = {
+        'date': default_date,
+        'amount': '',
+        'reference_month': default_ref_month,
+        'description': '',
+        'payment_method': 'pix',
+        'status': 'pendente',
+        'observation': ''
+    }
+
+    return render_template(
+        'advance_form.html',
+        active_page='advances',
+        is_edit=False,
+        form_data=form_data,
+        month_options=month_options
+    )
+
+@app.route('/adiantamentos/<int:adv_id>/editar', methods=['GET', 'POST'])
+@login_required
+def advance_edit(adv_id):
+    user_id = session['user_id']
+    month_options = get_month_options()
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM advances WHERE id = ? AND user_id = ?", (adv_id, user_id))
+    adv = cursor.fetchone()
+    conn.close()
+
+    if not adv:
+        flash("Adiantamento não encontrado.", "danger")
+        return redirect(url_for('advances_view'))
+
+    if request.method == 'POST':
+        date = (request.form.get('date') or '').strip()
+        amount_raw = (request.form.get('amount') or '').strip()
+        reference_month = (request.form.get('reference_month') or '').strip()
+        description = (request.form.get('description') or '').strip()
+        payment_method = (request.form.get('payment_method') or 'pix').strip()
+        status = (request.form.get('status') or 'pendente').strip()
+        observation = (request.form.get('observation') or '').strip()
+
+        amount = parse_currency_brl(amount_raw)
+
+        if not date:
+            flash("Informe a data do adiantamento.", "danger")
+            form_data = {
+                'date': date,
+                'amount': amount_raw,
+                'reference_month': reference_month,
+                'description': description,
+                'payment_method': payment_method,
+                'status': status,
+                'observation': observation
+            }
+            return render_template('advance_form.html', active_page='advances', is_edit=True, advance=adv, form_data=form_data, month_options=month_options)
+
+        if amount <= 0:
+            flash("Informe um valor válido maior que zero.", "danger")
+            form_data = {
+                'date': date,
+                'amount': amount_raw,
+                'reference_month': reference_month,
+                'description': description,
+                'payment_method': payment_method,
+                'status': status,
+                'observation': observation
+            }
+            return render_template('advance_form.html', active_page='advances', is_edit=True, advance=adv, form_data=form_data, month_options=month_options)
+
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE advances 
+            SET date = ?, amount = ?, description = ?, payment_method = ?,
+                status = ?, reference_month = ?, observation = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND user_id = ?
+        """, (date, amount, description, payment_method, status, reference_month, observation, adv_id, user_id))
+        conn.commit()
+        conn.close()
+
+        # Atualiza no Firestore
+        sync_advance_to_firebase(user_id, adv_id, {
+            'date': date,
+            'amount': amount,
+            'description': description,
+            'payment_method': payment_method,
+            'status': status,
+            'reference_month': reference_month,
+            'observation': observation
+        })
+
+        flash(f"Adiantamento de {format_currency_brl(amount)} atualizado com sucesso!", "success")
+        return redirect(url_for('advances_view'))
+
+    # GET
+    amount_str = f"{adv['amount']:.2f}".replace('.', ',')
+    form_data = {
+        'date': adv['date'],
+        'amount': amount_str,
+        'reference_month': adv['reference_month'] or adv['date'][:7],
+        'description': adv['description'] or '',
+        'payment_method': adv['payment_method'] or 'pix',
+        'status': adv['status'] or 'pendente',
+        'observation': adv['observation'] or ''
+    }
+
+    return render_template(
+        'advance_form.html',
+        active_page='advances',
+        is_edit=True,
+        advance=adv,
+        form_data=form_data,
+        month_options=month_options
+    )
+
+@app.route('/adiantamentos/<int:adv_id>/status', methods=['POST'])
+@login_required
+def advance_toggle_status(adv_id):
+    user_id = session['user_id']
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM advances WHERE id = ? AND user_id = ?", (adv_id, user_id))
+    adv = cursor.fetchone()
+
+    if not adv:
+        conn.close()
+        flash("Adiantamento não encontrado.", "danger")
+        return redirect(url_for('advances_view'))
+
+    new_status = 'descontado' if adv['status'] == 'pendente' else 'pendente'
+    cursor.execute("UPDATE advances SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?", (new_status, adv_id, user_id))
+    conn.commit()
+    conn.close()
+
+    # Sincroniza alteração de status com o Firebase
+    adv_dict = dict(adv)
+    adv_dict['status'] = new_status
+    sync_advance_to_firebase(user_id, adv_id, adv_dict)
+
+    status_name = "Descontado no Holerite" if new_status == 'descontado' else "Pendente de Desconto"
+    flash(f"Situação do vale de {format_currency_brl(adv['amount'])} alterada para: {status_name}!", "success")
+    return redirect(request.referrer or url_for('advances_view'))
+
+@app.route('/adiantamentos/<int:adv_id>/excluir', methods=['POST'])
+@login_required
+def advance_delete(adv_id):
+    user_id = session['user_id']
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM advances WHERE id = ? AND user_id = ?", (adv_id, user_id))
+    adv = cursor.fetchone()
+
+    if not adv:
+        conn.close()
+        flash("Adiantamento não encontrado.", "danger")
+        return redirect(url_for('advances_view'))
+
+    amount_val = adv['amount']
+    cursor.execute("DELETE FROM advances WHERE id = ? AND user_id = ?", (adv_id, user_id))
+    conn.commit()
+    conn.close()
+
+    # Remove do Firebase
+    delete_advance_from_firebase(user_id, adv_id)
+
+    flash(f"Adiantamento de {format_currency_brl(amount_val)} excluído com sucesso.", "success")
+    return redirect(url_for('advances_view'))
 
 # ==============================================================================
 # CONFIGURAÇÕES

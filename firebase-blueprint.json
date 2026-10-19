@@ -65,6 +65,27 @@
         "required": ["userId", "date", "dayType"]
       },
       "rules": "Usuários autenticados podem ler, criar, atualizar e excluir seus próprios registros de dias."
+    },
+    {
+      "id": "advances",
+      "description": "Registros de adiantamentos/vales salariais pegos com o chefe",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "string", "description": "ID do usuário proprietário" },
+          "date": { "type": "string", "description": "Data do adiantamento (YYYY-MM-DD)" },
+          "amount": { "type": "number", "description": "Valor em reais (R$)" },
+          "description": { "type": "string", "description": "Motivo ou descrição do adiantamento" },
+          "paymentMethod": { "type": "string", "description": "pix, dinheiro, transferencia, outro" },
+          "status": { "type": "string", "description": "pendente, descontado" },
+          "referenceMonth": { "type": "string", "description": "Mês de referência (YYYY-MM)" },
+          "observation": { "type": "string", "description": "Observações adicionais" },
+          "createdAt": { "type": "string", "description": "Timestamp ISO de criação" },
+          "updatedAt": { "type": "string", "description": "Timestamp ISO de atualização" }
+        },
+        "required": ["userId", "date", "amount"]
+      },
+      "rules": "Usuários autenticados podem ler, criar, atualizar e excluir seus próprios adiantamentos."
     }
   ]
 }

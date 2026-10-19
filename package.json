@@ -3,9 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "dev": "python3 -u app.py",
+    "dev": "bash run.sh",
     "build": "python3 -c \"import py_compile, glob; [py_compile.compile(f, doraise=True) for f in glob.glob('**/*.py', recursive=True)]\"",
-    "start": "python3 -u app.py",
+    "start": "bash run.sh",
     "lint": "python3 -c \"import py_compile, glob; [py_compile.compile(f, doraise=True) for f in glob.glob('**/*.py', recursive=True)]\""
   }
 }

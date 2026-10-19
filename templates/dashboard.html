@@ -174,6 +174,38 @@
   </div>
 </section>
 
+<!-- Resumo Rápido de Adiantamentos / Vales com o Chefe -->
+<section class="dashboard-section" style="margin-bottom: 2rem;">
+  <div style="background: #ffffff; border: 1px solid var(--border-color); border-radius: 12px; padding: 1.15rem 1.4rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+    <div style="display: flex; align-items: center; gap: 0.85rem;">
+      <div style="font-size: 1.8rem; background: #fffdf5; border: 1px solid #fde68a; width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+        💵
+      </div>
+      <div>
+        <h4 style="font-size: 0.98rem; font-weight: 800; color: var(--text-main); margin-bottom: 0.2rem;">
+          Vales e Adiantamentos — {{ current_month_display }}
+        </h4>
+        <span style="font-size: 0.86rem; color: var(--text-muted);">
+          Total no mês: <strong style="color: #1e3a8a;">{{ adv_summary.month_total_fmt }}</strong>
+          {% if adv_summary.month_pending_val > 0 %}
+            • A descontar pelo chefe: <strong style="color: #b45309;">{{ adv_summary.month_pending_fmt }}</strong> ({{ adv_summary.month_pending_count }} pendente(s))
+          {% else %}
+            • Nenhum vale pendente de desconto neste mês
+          {% endif %}
+        </span>
+      </div>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+      <a href="{{ url_for('advances_view') }}" class="btn btn-secondary btn-sm" id="btn-dash-view-advances">
+        Ver Todos os Vales
+      </a>
+      <a href="{{ url_for('advance_create') }}" class="btn btn-primary btn-sm" id="btn-dash-new-advance" style="font-weight: 700;">
+        + Registrar Vale com o Chefe
+      </a>
+    </div>
+  </div>
+</section>
+
 <!-- Registros Recentes -->
 <section class="dashboard-section">
   <div class="page-header" style="margin-bottom: 1rem;">

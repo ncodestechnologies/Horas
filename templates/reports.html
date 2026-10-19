@@ -341,4 +341,107 @@
     </table>
   </div>
 </div>
+
+<!-- Seção de Adiantamentos / Vales do Mês Selecionado para Conferência com o Chefe -->
+<div class="table-card" style="margin-top: 2rem;" id="section-report-advances">
+  <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+    <div>
+      <h3 style="font-size: 1.15rem; font-weight: 800; color: var(--text-main); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+        <span>💵</span>
+        <span>Adiantamentos e Vales Pegos — {{ month_name }} de {{ selected_year }}</span>
+      </h3>
+      <span style="font-size: 0.84rem; color: var(--text-muted);">
+        Valores para conferência e abatimento no holerite / acerto com o chefe.
+      </span>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+      <a href="{{ url_for('advance_create', ref_month=selected_year ~ '-' ~ '%02d'|format(selected_month)) }}" class="btn btn-primary btn-sm" style="font-weight: 700;">
+        + Registrar Vale neste Mês
+      </a>
+    </div>
+  </div>
+
+  {% if month_advances %}
+    <div style="padding: 1rem 1.5rem; background: #fafaf9; border-bottom: 1px solid var(--border-color); display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: center;">
+      <div>
+        <span style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; display: block;">Total de Vales do Mês</span>
+        <strong style="font-size: 1.15rem; color: #1e3a8a;">{{ month_adv_stats.total_fmt }}</strong>
+      </div>
+      <div style="border-left: 2px solid #e2e8f0; padding-left: 1.5rem;">
+        <span style="font-size: 0.78rem; text-transform: uppercase; color: #b45309; font-weight: 700; display: block;">⚠️ Pendente de Desconto</span>
+        <strong style="font-size: 1.15rem; color: #d97706;">{{ month_adv_stats.pending_fmt }}</strong>
+        <span style="font-size: 0.75rem; color: #b45309;">({{ month_adv_stats.pending_count }} a abater na folha)</span>
+      </div>
+      <div style="border-left: 2px solid #e2e8f0; padding-left: 1.5rem;">
+        <span style="font-size: 0.78rem; text-transform: uppercase; color: #15803d; font-weight: 700; display: block;">✓ Já Descontados</span>
+        <strong style="font-size: 1.15rem; color: #166534;">{{ month_adv_stats.deducted_fmt }}</strong>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Valor (R$)</th>
+            <th>Motivo / Descrição</th>
+            <th>Forma</th>
+            <th>Situação</th>
+            <th>Observações</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in month_advances %}
+            <tr style="{% if a.status == 'pendente' %}background-color: #fffdf5;{% endif %}">
+              <td><strong>{{ a.date_fmt }}</strong></td>
+              <td>
+                <span style="font-size: 1.05rem; font-weight: 800; color: {% if a.status == 'pendente' %}#b45309{% else %}#166534{% endif %};">
+                  {{ a.amount_fmt }}
+                </span>
+              </td>
+              <td>{{ a.description or 'Adiantamento salarial' }}</td>
+              <td>
+                <span style="font-size: 0.8rem; padding: 2px 6px; background: #f1f5f9; border-radius: 4px; font-weight: 600;">
+                  {% if a.payment_method == 'pix' %}💠 PIX
+                  {% elif a.payment_method == 'dinheiro' %}💵 Dinheiro
+                  {% elif a.payment_method == 'transferencia' %}🏦 Transferência
+                  {% else %}📄 {{ a.payment_method|capitalize }}{% endif %}
+                </span>
+              </td>
+              <td>
+                {% if a.status == 'pendente' %}
+                  <span class="status-badge" style="background: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-weight: 700;">
+                    🟡 Pendente de Desconto
+                  </span>
+                {% else %}
+                  <span class="status-badge" style="background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; font-weight: 700;">
+                    🟢 Descontado no Holerite
+                  </span>
+                {% endif %}
+              </td>
+              <td>{{ a.observation or '—' }}</td>
+              <td>
+                <div class="table-actions">
+                  <a href="{{ url_for('advance_edit', adv_id=a.id) }}" class="btn btn-secondary btn-sm" title="Editar">
+                    Editar
+                  </a>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div style="padding: 2rem 1.5rem; text-align: center; color: var(--text-muted);">
+      <p style="margin-bottom: 0.5rem; font-size: 0.95rem;">
+        Nenhum adiantamento ou vale registrado para <strong>{{ month_name }} de {{ selected_year }}</strong>.
+      </p>
+      <a href="{{ url_for('advance_create', ref_month=selected_year ~ '-' ~ '%02d'|format(selected_month)) }}" class="btn btn-secondary btn-sm">
+        + Registrar Vale com o Chefe neste Mês
+      </a>
+    </div>
+  {% endif %}
+</div>
 {% endblock %}
